@@ -187,14 +187,22 @@ zugbot dashboard-url
 Die Adresse am iPhone in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Die Seite
 aktualisiert sich jede Minute selbst.
 
-**Wischen:** Gibt es mehrere passende Verbindungen, lassen sie sich wischen (oder mit den
-Pfeilen durchblättern). „Diese nehmen“ macht eine Option zur überwachten Fahrt. Andere
-Optionen zeigen den Fahrplanstand der letzten Planung, nur die überwachte hat Echtzeit.
+**Aufbau:** Oben die nächste Fahrt mit Countdown und Gleis, darunter die Reiter
+„Heute“ und „Morgen“ (am breiten Bildschirm nebeneinander). Pro Tag Termin, eigene Zeiten
+und je eine Karte für Hin- und Rückfahrt mit Zeitstrahl: Halte, Gleise, Umstiegszeiten,
+Züge blau, Tram/Bus orange.
+
+**Optionen:** Gibt es mehrere passende Verbindungen, stehen sie als Zeit-Chips über der
+Karte. Antippen zeigt sie an, Wischen über die Verbindung blättert genau eine weiter
+(am Mac: Pfeiltasten auf den Chips). Der grüne Punkt markiert die überwachte Fahrt.
+„Diese nehmen“ macht die angezeigte Option zur überwachten. Andere Optionen zeigen den
+Fahrplanstand der letzten Planung, nur die überwachte hat Echtzeit.
 
 **Tram und Bus:** Unter jeder Verbindung über Darmstadt Hbf stehen die direkten Trams
 und Busse zwischen Hbf und Campus, die noch passen (Hinweg: nach Zugankunft + 7 min und
 rechtzeitig am Campus; Rückweg: rechtzeitig für den Zug), mit Takt, z. B.
-„Tram 2 etwa alle 5–10 min“. Deine eigene Fahrt ist hervorgehoben. Fährt der Zug direkt
+„Tram 2 etwa alle 5–10 min“. Deine eigene Fahrt ist hervorgehoben. Die Box steht im Zeitstrahl am Umstieg in
+Darmstadt Hbf (Hinweg) bzw. am Campus-Halt (Rückweg). Fährt der Zug direkt
 zur Lichtwiese (RB 82), entfällt die Anzeige. Dafür fragt der Bot pro Planung 2–4 Mal mehr
 bei Transitous an.
 

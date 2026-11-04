@@ -63,6 +63,7 @@ def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]
         frueh, spaet = zug.an + umstieg, v.ziel_zeit
         passend = [f for f in fahrten if f["ab_dt"] >= frueh and (spaet is None or f["an_dt"] <= spaet)]
         titel = "Ab Darmstadt Hbf zum Campus"
+        halt = v.fahrten.index(zug) + 1      # Halt nach der Zugankunft
     else:
         zug = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
                     and bewertung.ist_darmstadt_hbf(a.von, regeln)), None)
@@ -71,6 +72,7 @@ def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]
         frueh, spaet = _zeit(stadt.get("ab")), zug.ab - umstieg
         passend = [f for f in fahrten if f["an_dt"] <= spaet and (frueh is None or f["ab_dt"] >= frueh)]
         titel = "Zum Darmstadt Hbf"
+        halt = max(0, v.fahrten.index(zug) - 1)   # Abfahrtshalt der Tram/des Busses am Campus
     if not passend:
         return None
     eigene = {(a.linie, a.ab_plan) for a in v.fahrten if a.produkt in ("tram", "bus")}
@@ -86,6 +88,7 @@ def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]
         text = f"{linien} · {takt}" if takt else linien
     return {
         "titel": titel,
+        "halt": halt,       # Index im Zeitstrahl (web.fahrt_daten "halte")
         "linien": linien,
         "takt": takt,
         "text": text,

@@ -45,47 +45,67 @@ def _gleis_label(a, an: bool = False) -> str:
     return f"{'Steig' if a.ist_steig else 'Gleis'} {g}" if g else ""
 
 
+def _status(a) -> tuple[str, str]:
+    if a.ausfall:
+        return "fällt aus", "ausfall"
+    if a.ab_ist is None:
+        return "Fahrplan", "plan"
+    if a.verspaetung_ab > 0:
+        return f"+{a.verspaetung_ab} min", "spaet"
+    return "pünktlich", "ok"
+
+
 def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
+    """Eine Verbindung fürs Dashboard: Kopfzeile, Balken und Zeitstrahl.
+
+    Zeitstrahl = Halte (Abfahrt jedes Fahrzeugs, am Ende die Ankunft) und
+    dazwischen die Fahrten. Die Umstiegszeit steht am Halt.
+    """
     fahrten = v.fahrten
     gesamt = max(1, sum(max(1, a.fahrzeit_min) for a in fahrten))
     los = round((v.ab - jetzt).total_seconds() / 60)
     if los > 0:
-        los_text = f"Los in {texte.dauer(los)}" if los < 180 else f"Los um {v.ab:%H:%M}"
+        los_text = f"in {texte.dauer(los)}" if los < 180 else f"um {v.ab:%H:%M}"
     elif v.an > jetzt:
-        los_text = f"Unterwegs, an {v.an:%H:%M}"
+        los_text = f"unterwegs, an {v.an:%H:%M}"
     else:
-        los_text = "Angekommen"
+        los_text = "angekommen"
     ziel = "zu Hause" if v.richtung == "rueck" else f"an {texte.kurzname(fahrten[-1].nach.name)}"
+    us = bewertung.umstiege(v, regeln)
 
     abschnitte = []
     for a in fahrten:
-        if a.ausfall:
-            status, art = "fällt aus", "ausfall"
-        elif a.ab_ist is None:
-            status, art = "Fahrplan", "plan"
-        elif a.verspaetung_ab > 0:
-            status, art = f"+{a.verspaetung_ab} min", "spaet"
-        else:
-            status, art = "pünktlich", "ok"
+        status, art = _status(a)
         abschnitte.append({
-            "ab": f"{a.ab:%H:%M}",
-            "ab_alt": f"{a.ab_plan:%H:%M}" if a.verspaetung_ab > 0 else "",
-            "linie": f"{a.linie} {texte.kurzname(a.von.name)} → {texte.kurzname(a.nach.name)}",
-            "status": status, "status_art": art,
-            "an": f"an {a.an:%H:%M}",
-            "gleis": _gleis_label(a),
-            "fahrzeit": f"{a.fahrzeit_min} min Fahrt",
+            "linie": a.linie, "richtung": a.richtung, "steig": a.ist_steig,
+            "status": status, "status_art": art, "fahrzeit": f"{a.fahrzeit_min} min",
         })
-    umstiege = []
-    for u in bewertung.umstiege(v, regeln):
-        if u.minuten < u.minuten_plan:
-            umstiege.append({"text": f"Umstieg {u.minuten} min statt {u.minuten_plan}", "warn": True})
-        else:
-            umstiege.append({"text": f"Umstieg {u.minuten} min", "warn": not u.reicht})
+    halte = []
+    for i, a in enumerate(fahrten):
+        vorher = fahrten[i - 1] if i else None
+        u = us[i - 1] if i else None
+        halte.append({
+            "ort": texte.kurzname(a.von.name),
+            "an": f"{vorher.an:%H:%M}" if vorher else "",
+            "an_spaet": bool(vorher and vorher.verspaetung_an > 0),
+            "ab": f"{a.ab:%H:%M}", "ab_alt": f"{a.ab_plan:%H:%M}" if a.verspaetung_ab > 0 else "",
+            "ab_spaet": a.verspaetung_ab > 0 or a.ausfall,
+            "gleis": _gleis_label(a),
+            "umstieg": (f"{u.minuten} min Umstieg" + (f" statt {u.minuten_plan}" if u.minuten < u.minuten_plan else ""))
+                       if u else "",
+            "umstieg_warn": bool(u and (not u.reicht or u.minuten < u.minuten_plan)),
+        })
+    letzte = fahrten[-1]
+    halte.append({"ort": texte.kurzname(letzte.nach.name), "an": f"{letzte.an:%H:%M}",
+                  "an_spaet": letzte.verspaetung_an > 0, "ab": "", "ab_alt": "", "ab_spaet": False,
+                  "gleis": _gleis_label(letzte, an=True), "umstieg": "", "umstieg_warn": False, "ziel": True})
     return {
         "richtung": ("Hinfahrt, " if v.richtung == "hin" else "Rückfahrt, ") + texte.campus_name(v.campus),
         "los": los_text,
+        "ab": f"{v.ab:%H:%M}", "an": f"{v.an:%H:%M}",
+        "von": texte.kurzname(fahrten[0].von.name), "gleis": _gleis_label(fahrten[0]),
         "zeile": f"{v.ab:%H:%M} ab {texte.kurzname(fahrten[0].von.name)}, {ziel} {v.an:%H:%M}",
+        "meta": f"{texte.dauer(v.dauer_min)} · {v.umstiege} Umstieg{'e' if v.umstiege != 1 else ''}",
         "segmente": [{
             "kurz": a.kurz, "anteil": round(100 * max(1, a.fahrzeit_min) / gesamt, 1),
             "verspaetet": a.verspaetung_an > 0 or a.verspaetung_ab > 0 or a.ausfall,
@@ -94,52 +114,15 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
         } for a in fahrten],
         "fahrzeit": texte.dauer(v.dauer_min),
         "abschnitte": abschnitte,
-        "umstiege": umstiege,
+        "halte": halte,
         "hinweis": v.hinweis,
+        "unterwegs": v.ab <= jetzt < v.an,
+        "vorbei": v.an < jetzt,
     }
 
 
-def morgen_daten(p: Optional[dict], d, regeln: Regeln, e: dict) -> dict:
-    wt = stundenplan.WOCHENTAGE_LANG[d.weekday()]
-    if not p or p["tag"]["frei"]:
-        return {"wochentag": wt, "frei": True, "grund": (p or {}).get("tag", {}).get("grund", "")}
-    v = Verbindung.aus_dict(p["hin"]) if p.get("hin") else None
-    termin = p["tag"]["termine"][0]
-    t_von = datetime.fromisoformat(termin["von"])
-    eigene = p["tag"].get("eigene") or {}
-    daten = {"wochentag": wt, "frei": False, "campus": texte.campus_name(p["tag"]["campus"]),
-             "termin": f"{t_von:%H:%M} {termin['titel']}, {termin['raum']}".rstrip(", "),
-             "eigene": f"Eigene Zeit: {wuensche.beschreibung(eigene)}" if eigene else ""}
-    if v is None:
-        daten["fehlt"] = p.get("fehler") or "Keine Verbindung gefunden."
-        return daten
-    push = v.ab_plan - timedelta(minutes=e["benachrichtigung"]["morgen_push_minuten_vor_abfahrt"])
-    daten.update(kompakt(v, regeln, (p.get("stadt") or {}).get("hin")))
-    daten["push"] = f"Morgen-Push um {push:%H:%M}"
-    return daten
-
-
-def _umstieg_text(v: Verbindung, regeln: Regeln) -> str:
-    ffm = next((u for u in bewertung.umstiege(v, regeln) if "frankfurt" in u.ort.lower()), None)
-    return f"Umstieg {texte.kurzname(ffm.ort)} {ffm.minuten} min" if ffm else f"{v.umstiege} Umstieg(e)"
-
-
-def kompakt(v: Verbindung, regeln: Regeln, stadt: Optional[dict]) -> dict:
-    """Kurzform einer Verbindung (Karte "Morgen", wischbare Optionen)."""
-    erste = v.fahrten[0]
-    return {
-        "ab": f"{erste.ab:%H:%M}", "gleis": _gleis_label(erste),
-        "von": texte.kurzname(erste.von.name),
-        "an": f"an {v.an:%H:%M}", "dauer": texte.dauer(v.dauer_min),
-        "umstieg": _umstieg_text(v, regeln),
-        "linien": " › ".join(a.linie for a in v.fahrten),
-        "stadt": takt.info(stadt, v, regeln),
-    }
-
-
-def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetime,
-             w: dict, voll: bool = False) -> list[dict]:
-    """Alle Optionen einer Richtung, nach Abfahrt sortiert (zum Wischen).
+def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetime, w: dict) -> list[dict]:
+    """Alle Optionen einer Richtung, nach Abfahrt sortiert (Zeit-Chips).
 
     Die überwachte Verbindung kommt mit Echtzeit aus p[richtung]; die anderen
     sind Fahrplanstand der letzten Planung. Abgefahrene fallen weg.
@@ -161,14 +144,45 @@ def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetim
         k = o.schluessel()
         if k != g_key and o.ab <= jetzt:
             continue
-        daten = fahrt_daten(o, regeln, jetzt) if voll else kompakt(o, regeln, stadt)
-        if voll:
-            daten["stadt"] = takt.info(stadt, o, regeln)
-        daten.update({"schluessel": k, "gewaehlt": k == g_key and not offen,
-                      "wird_gewaehlt": k == offen, "empfohlen": k == empfohlen,
-                      "fahrplan": k != g_key})
+        daten = fahrt_daten(o, regeln, jetzt)
+        daten.update({"stadt": takt.info(stadt, o, regeln), "schluessel": k,
+                      "gewaehlt": k == g_key and not offen, "wird_gewaehlt": k == offen,
+                      "empfohlen": k == empfohlen, "fahrplan": k != g_key})
         ergebnis.append(daten)
     return ergebnis
+
+
+def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: datetime, w: dict) -> dict:
+    """Ein Tag (Reiter Heute/Morgen): Termine, eigene Zeiten, Hin- und Rückfahrt."""
+    daten = {"name": name, "datum": d.isoformat(),
+             "titel": f"{stundenplan.WOCHENTAGE_LANG[d.weekday()]}, {d.day}. {MONATE[d.month - 1]}"}
+    if not p:
+        return {**daten, "frei": False, "fehlt": "Noch kein Plan, kommt gleich.", "fahrten": []}
+    if p["tag"]["frei"]:
+        return {**daten, "frei": True, "grund": p["tag"].get("grund", ""), "fahrten": [],
+                "eigene": wuensche.beschreibung(p["tag"].get("eigene"))}
+    termin = p["tag"]["termine"][0]
+    t_von = datetime.fromisoformat(termin["von"])
+    daten.update({
+        "frei": False, "campus": texte.campus_name(p["tag"]["campus"]),
+        "termin": f"{t_von:%H:%M} {termin['titel']}, {termin['raum']}".rstrip(", ")
+                  if termin["titel"] != "Eigene Zeit" else "",
+        "eigene": wuensche.beschreibung(p["tag"].get("eigene")),
+        "warnungen": p["tag"].get("warnungen", []),
+        "fahrten": [],
+    })
+    if p.get("hin"):
+        push = Verbindung.aus_dict(p["hin"]).ab_plan - timedelta(
+            minutes=e["benachrichtigung"]["morgen_push_minuten_vor_abfahrt"])
+        if push > jetzt:
+            daten["push"] = f"Push um {push:%H:%M}"
+    for r, titel in (("hin", "Hinfahrt"), ("rueck", "Rückfahrt")):
+        opt = optionen(p, d, r, regeln, jetzt, w)
+        daten["fahrten"].append({
+            "richtung": r, "titel": titel, "optionen": opt,
+            "fehlt": "" if opt else (p.get("fehler") or f"Keine passende {titel} gefunden."),
+        })
+    return daten
 
 
 def anpassen_daten(z: dict, w: dict, heute) -> dict:
@@ -189,6 +203,8 @@ def anpassen_daten(z: dict, w: dict, heute) -> dict:
         tage.append({
             "datum": d.isoformat(), "name": f"{name}, {d.day}.{d.month}.",
             "standard": standard, "eigene": eigene, "eigene_text": wuensche.beschreibung(eigene),
+            "beginn": None if t.frei else f"{t.erster.von:%H:%M}",
+            "ende": None if t.frei else f"{t.letzter.bis:%H:%M}",
             "ausstehend": bool(p) and (p["tag"].get("eigene") != eigene),
         })
     return {"tage": tage,
@@ -248,50 +264,42 @@ def dashboard_daten() -> dict:
     tz = config.zeitzone()
     jetzt = datetime.now(tz)
     z = zustand.laden()
+    w = wuensche.laden()
     heute, morgen = jetzt.date(), jetzt.date() + timedelta(days=1)
     status = z.get("status", {})
     modus = status.get("modus", "normal")
     ue = e["ueberwachung"]
+    p_heute, p_morgen = zustand.plan(z, heute), zustand.plan(z, morgen)
 
-    w = wuensche.laden()
-    p_heute = zustand.plan(z, heute)
-    aktiv, aktiv_richtung = None, None
+    # Kopfkarte: die nächste oder laufende Fahrt heute
+    kopf = None
     for r in ("hin", "rueck"):
         v = zustand.verbindung(z, heute, r)
         if v and v.an >= jetzt:
-            aktiv, aktiv_richtung = fahrt_daten(v, regeln, jetzt), r
-            aktiv["stadt"] = takt.info((p_heute.get("stadt") or {}).get(r), v, regeln)
-            # Wählen nur, solange die Fahrt noch nicht begonnen hat
-            aktiv["optionen"] = optionen(p_heute, heute, r, regeln, jetzt, w, voll=True) if v.ab > jetzt else []
-            aktiv["datum"], aktiv["richtung_wert"] = heute.isoformat(), r
+            kopf = fahrt_daten(v, regeln, jetzt)
             break
-    p_morgen = zustand.plan(z, morgen)
-    weitere = []    # wischbare Kurzkarten: Heute zurück (während der Hinfahrt), Morgen hin/zurück
-    if aktiv_richtung == "hin":
-        weitere.append({"titel": "Heute zurück", "datum": heute.isoformat(), "richtung": "rueck",
-                        "optionen": optionen(p_heute, heute, "rueck", regeln, jetzt, w)})
-    weitere.append({"titel": "Morgen zurück", "datum": morgen.isoformat(), "richtung": "rueck",
-                    "optionen": optionen(p_morgen, morgen, "rueck", regeln, jetzt, w)})
-    morgen_karte = morgen_daten(p_morgen, morgen, regeln, e)
-    morgen_karte.update({"datum": morgen.isoformat(),
-                         "optionen": optionen(p_morgen, morgen, "hin", regeln, jetzt, w)})
-    if aktiv is None:
+    if kopf is None:
         if p_heute and p_heute["tag"]["frei"]:
             leer = "Heute frei"
         elif p_heute:
             leer = "Für heute erledigt"
         else:
             leer = "Noch kein Plan"
+        naechste = zustand.verbindung(z, morgen, "hin")
+        kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab Gelnhausen" if naechste else ""}
+
+    tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w),
+            tag_daten(p_morgen, morgen, "Morgen", regeln, e, jetzt, w)]
     return {
         "datum": f"{stundenplan.WOCHENTAGE_LANG[heute.weekday()]}, {heute.day}. {MONATE[heute.month - 1]}",
         "modus": f"live, alle {ue['intervall_nah_minuten']} min" if modus == "nah"
                  else f"alle {ue['intervall_normal_minuten']} min",
         "stoerung": status.get("fehler", ""),
         "aktualisiert": datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else "",
-        "aktiv": aktiv,
-        "leer": None if aktiv else leer,
-        "morgen": morgen_karte,
-        "weitere": [x for x in weitere if x["optionen"]],
+        "kopf": kopf,
+        "tage": tage,
+        # Abends ist morgen interessanter als ein erledigtes Heute
+        "start_tag": 0 if "leer" not in kopf else 1,
         "anpassen": anpassen_daten(z, w, heute),
     }
 

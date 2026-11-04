@@ -43,6 +43,7 @@ def test_hinweg_nur_nach_umstieg_und_rechtzeitig():
     # frühestens 7:22 + 7 min Umstieg, spätestens an 7:55 -> ab 7:30, 7:35
     assert [f["ab"] for f in i["fahrten"]] == ["07:30", "07:35"]
     assert i["fahrten"][0]["deine"] and not i["fahrten"][1]["deine"]
+    assert i["halt"] == 1          # im Zeitstrahl am Darmstadt Hbf, nach der Zugankunft
     assert i["text"] == "Tram 2 etwa alle 5 min"
 
 
@@ -68,6 +69,7 @@ def test_rueckweg_bis_zugabfahrt_minus_umstieg():
     # ab frühestens 16:10, an spätestens 16:23 -> 16:10 (an 16:18), 16:15 (an 16:23)
     assert [f["ab"] for f in i["fahrten"]] == ["16:10", "16:15"]
     assert i["titel"] == "Zum Darmstadt Hbf"
+    assert i["halt"] == 0          # ohne Tram in der Verbindung: am ersten Halt
 
 
 def test_ohne_darmstadt_hbf_nichts():
