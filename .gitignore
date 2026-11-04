@@ -1,0 +1,19 @@
+# Geheimnisse und Privates
+.env
+config/stundenplan.yaml
+
+# Laufzeitdaten
+daten/
+*.log
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# Sonstiges
+.DS_Store
+config/*.bak
+.claude/

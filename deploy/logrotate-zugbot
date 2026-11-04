@@ -1,0 +1,10 @@
+/var/log/zugbot/zugbot.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    # zugbot nutzt WatchedFileHandler und öffnet die Datei nach dem Umbenennen neu
+    create 0644 bene635 bene635
+}

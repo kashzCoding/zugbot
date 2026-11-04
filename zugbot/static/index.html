@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e9ecf1">
+<title>Zug-Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Design "C Fokus". Kontraste geprüft (WCAG AA, Text mind. 4,5:1):
+     Orange #ffb547 nur auf Blau (4,67:1) und als Fläche; auf Weiß #9a5800 (5,57:1). */
+  :root {
+    --bg: #e9ecf1;
+    --karte: #ffffff;
+    --text: #1b1f27;
+    --grau: #5b6270;
+    --chip: #f1f3f6;
+    --linie: #e3e6ec;
+    --akzent: #3a2fd6;
+    --akzent-hell: #d6d3ff;
+    --orange: #ffb547;
+    --orange-text: #9a5800;
+    --orange-flaeche: #fff4e0;
+    --gruen: #1a7f37;
+    --punkt: #22c55e;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: "Figtree", system-ui, -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    padding: max(16px, env(safe-area-inset-top)) 16px 32px;
+  }
+  .seite { max-width: 420px; margin: 0 auto; display: grid; gap: 12px; }
+  @media (min-width: 880px) {
+    .seite { max-width: 880px; grid-template-columns: 1fr 1fr; align-items: start; column-gap: 16px; }
+    .kopf, .fuss, .stoerung { grid-column: 1 / -1; }
+    .links { display: grid; gap: 12px; }
+  }
+  .links { display: grid; gap: 12px; }
+
+  .kopf { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 2px; }
+  .kopf h1 { font-size: 17px; font-weight: 700; margin: 0; }
+  .live { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--grau); font-weight: 500; }
+  .live .punkt { width: 8px; height: 8px; border-radius: 50%; background: var(--punkt); }
+  .live.nah .punkt { box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: puls 2s infinite; }
+  @keyframes puls { 70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+  @media (prefers-reduced-motion: reduce) { .live.nah .punkt { animation: none; } }
+
+  .karte { background: var(--karte); border-radius: var(--radius); padding: 16px; }
+  .karte h2 { font-size: 15px; font-weight: 700; margin: 0; }
+  .karte-kopf { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; gap: 8px; }
+  .klein { font-size: 13px; color: var(--grau); }
+
+  /* Akzentkarte */
+  .akzent { background: var(--akzent); color: #fff; border-radius: var(--radius); padding: 18px 18px 16px; }
+  .akzent .oben { font-size: 14px; font-weight: 600; color: var(--akzent-hell); }
+  .akzent .gross { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; margin: 4px 0 6px; }
+  .akzent .zeile { font-size: 15px; font-weight: 500; }
+  .akzent .hinweis { font-size: 13px; color: var(--akzent-hell); margin-top: 6px; }
+  .balken { display: flex; gap: 3px; margin-top: 16px; height: 8px; }
+  .balken span { background: rgba(255,255,255,.85); border-radius: 4px; min-width: 6px; }
+  .balken span.spaet { background: var(--orange); }
+  .beschriftung { display: flex; gap: 3px; margin-top: 6px; font-size: 12px; font-weight: 600; }
+  .beschriftung span { min-width: 6px; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+  .beschriftung span.spaet { color: var(--orange); }
+
+  /* Verbindung */
+  .abschnitt { display: grid; grid-template-columns: 52px 1fr auto; column-gap: 10px; row-gap: 4px; align-items: baseline; }
+  .abschnitt .zeit { font-weight: 700; font-size: 16px; }
+  .abschnitt .zeit.spaet { color: var(--orange-text); }
+  .abschnitt .alt { grid-column: 1; font-size: 12px; color: var(--grau); text-decoration: line-through; }
+  .abschnitt .wer { font-weight: 600; font-size: 15px; }
+  .abschnitt .status { font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .status.ok { color: var(--gruen); }
+  .status.spaet, .status.ausfall { color: var(--orange-text); }
+  .status.plan { color: var(--grau); font-weight: 500; }
+  .abschnitt .details { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--grau); }
+  .chip { background: var(--chip); color: var(--grau); border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
+  .umstieg { margin: 10px 0 10px 62px; padding: 6px 10px; border-radius: 8px; background: var(--chip); font-size: 13px; color: var(--grau); }
+  .umstieg.warn { background: var(--orange-flaeche); color: var(--orange-text); font-weight: 600; }
+  .trenner { height: 1px; background: var(--linie); margin: 12px 0; }
+
+  /* Morgen */
+  .morgen .tag { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .campus-chip { background: #ebe9fd; color: var(--akzent); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; }
+  .morgen .reihe { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .morgen .ab { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
+  .morgen .gleis { font-size: 15px; font-weight: 600; color: var(--grau); }
+  .morgen .an { font-size: 15px; color: var(--text); }
+  .morgen ul { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; font-size: 14px; }
+  .morgen li { display: flex; gap: 8px; align-items: center; }
+  .morgen li svg { flex: none; }
+  .termin { font-weight: 600; }
+
+  .stoerung { background: var(--orange-flaeche); color: var(--orange-text); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; }
+  .fuss { font-size: 12px; color: var(--grau); text-align: center; line-height: 1.6; }
+  .fuss a { color: var(--grau); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="seite" id="seite">
+  <header class="kopf">
+    <h1 id="datum">Zug-Bot</h1>
+    <div class="live" id="live"><span class="punkt" aria-hidden="true"></span><span id="modus">lädt</span></div>
+  </header>
+  <div class="stoerung" id="stoerung" role="status" hidden></div>
+  <div class="links">
+    <section class="akzent" id="akzent" aria-live="polite"></section>
+    <section class="karte" id="verbindung" hidden></section>
+  </div>
+  <section class="karte morgen" id="morgen"></section>
+  <footer class="fuss">
+    <span id="stand"></span><br>
+    Fahrplandaten: <a href="https://transitous.org/sources/">Transitous und Quellen</a>,
+    © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende.
+    Gleise: DB Timetables API.
+  </footer>
+</main>
+<script>
+"use strict";
+const ICON = {
+  umstieg: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  glocke: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3L4 11zM6.5 14h3" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  ort: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z" fill="none" stroke="#5b6270" stroke-width="1.6"/><circle cx="8" cy="6.5" r="1.6" fill="#5b6270"/></svg>'
+};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function akzent(d) {
+  const el = document.getElementById("akzent");
+  if (!d.aktiv) {
+    el.innerHTML = `<div class="oben">Heute</div><div class="gross">${esc(d.leer)}</div>`
+      + (d.morgen && !d.morgen.frei && d.morgen.ab ? `<div class="zeile">Morgen ${esc(d.morgen.ab)} ab Gelnhausen</div>` : "");
+    return;
+  }
+  const a = d.aktiv;
+  const balken = a.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}"></span>`).join("");
+  const text = a.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}">${esc(s.kurz)}${s.plus ? " " + esc(s.plus) : ""}</span>`).join("");
+  el.innerHTML = `<div class="oben">${esc(a.richtung)}</div>
+    <div class="gross">${esc(a.los)}</div>
+    <div class="zeile">${esc(a.zeile)}</div>
+    ${a.hinweis ? `<div class="hinweis">${esc(a.hinweis)}</div>` : ""}
+    <div class="balken" aria-hidden="true">${balken}</div>
+    <div class="beschriftung">${text}</div>`;
+}
+
+function verbindung(d) {
+  const el = document.getElementById("verbindung");
+  if (!d.aktiv) { el.hidden = true; return; }
+  el.hidden = false;
+  const a = d.aktiv;
+  let html = `<div class="karte-kopf"><h2>Verbindung</h2><span class="klein">Fahrzeit gesamt ${esc(a.fahrzeit)}</span></div>`;
+  a.abschnitte.forEach((s, i) => {
+    const spaet = s.status_art === "spaet";
+    html += `<div class="abschnitt">
+      <div class="zeit ${spaet ? "spaet" : ""}">${esc(s.ab)}</div>
+      <div class="wer">${esc(s.linie)}</div>
+      <div class="status ${s.status_art}">${esc(s.status)}</div>
+      ${s.ab_alt ? `<div class="alt">${esc(s.ab_alt)}</div>` : ""}
+      <div class="details"><span>${esc(s.an)}</span>${s.gleis ? `<span class="chip">${esc(s.gleis)}</span>` : ""}<span>${esc(s.fahrzeit)}</span></div>
+    </div>`;
+    const u = a.umstiege[i];
+    if (u) html += `<div class="umstieg ${u.warn ? "warn" : ""}">${esc(u.text)}</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function morgen(d) {
+  const m = d.morgen, el = document.getElementById("morgen");
+  if (m.frei) {
+    el.innerHTML = `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2></div><div class="morgen"><div class="ab">frei</div>${m.grund ? `<div class="klein">${esc(m.grund)}</div>` : ""}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2><span class="campus-chip">${esc(m.campus)}</span></div>`
+    + (m.fehlt ? `<div class="stoerung">${esc(m.fehlt)}</div>` : `
+    <div class="reihe"><span class="ab">${esc(m.ab)}</span>${m.gleis ? `<span class="gleis">${esc(m.gleis)}</span>` : ""}
+      <span class="an">${esc(m.an)} · ${esc(m.dauer)}</span></div>
+    <div class="klein">ab Gelnhausen</div>`)
+    + `<ul>
+      ${m.umstieg ? `<li>${ICON.umstieg}<span>${esc(m.umstieg)}</span></li>` : ""}
+      ${m.push ? `<li>${ICON.glocke}<span>${esc(m.push)}</span></li>` : ""}
+      <li>${ICON.ort}<span class="termin">${esc(m.termin)}</span></li>
+    </ul>`;
+}
+
+async function laden() {
+  try {
+    const r = await fetch("/api/status", {cache: "no-store"});
+    const d = await r.json();
+    document.getElementById("datum").textContent = d.datum;
+    document.getElementById("modus").textContent = d.modus;
+    document.getElementById("live").classList.toggle("nah", d.modus.startsWith("live"));
+    const st = document.getElementById("stoerung");
+    st.hidden = !d.stoerung;
+    st.textContent = d.stoerung ? "Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." : "";
+    document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
+    akzent(d); verbindung(d); morgen(d);
+  } catch (e) {
+    document.getElementById("modus").textContent = "keine Verbindung zum Pi";
+  }
+}
+laden();
+setInterval(laden, 60000);
+</script>
+</body>
+</html>

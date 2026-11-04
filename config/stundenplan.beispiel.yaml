@@ -1,0 +1,76 @@
+# BEISPIEL-Stundenplan (erfundene Termine).
+#
+# Dein echter Stundenplan steht in config/stundenplan.yaml. Die Datei ist in
+# .gitignore und wird nie committet; deploy.sh kopiert sie trotzdem auf den Pi.
+# Fehlt sie, nimmt der Bot diese Beispieldatei.
+#
+# Anlegen:  cp config/stundenplan.beispiel.yaml config/stundenplan.yaml
+#   oder:   zugbot import-ics <tucan-export.ics> --schreiben
+#
+# Der Campus ergibt sich aus dem Raum:
+#   Raum beginnt mit L -> Lichtwiese, mit S -> Stadtmitte.
+# Steht im Raum nichts Brauchbares (z. B. "Raum offen"), setz "campus:" von Hand.
+#
+# Felder pro Termin:
+#   tag:         Mo, Di, Mi, Do, Fr
+#   von / bis:   Uhrzeit "HH:MM"
+#   raum:        Raumbezeichnung aus TUCaN
+#   titel:       Name der Veranstaltung
+#   campus:      optional, lichtwiese oder stadtmitte (überschreibt den Raum)
+#   aktiv:       optional, false = Termin wird ignoriert (Standard: true)
+#   ab / bis_datum: optional, Termin gilt nur in diesem Zeitraum
+#   raumwechsel: optional, Liste mit {ab: Datum, raum: neuer Raum}
+
+semester:
+  name: WiSe 2026/27
+  # Quelle: tu-darmstadt.de/studieren/studierende_tu/semestermine
+  vorlesungen_ab: 2026-10-12
+  vorlesungen_bis: 2027-02-12
+
+# Tage ohne Vorlesungen. Einzelne Tage oder Zeiträume {von, bis}.
+vorlesungsfrei:
+  - von: 2026-12-21
+    bis: 2027-01-08
+    grund: Weihnachtspause
+  # - datum: 2026-11-20
+  #   grund: Beispiel für einen einzelnen freien Tag
+
+termine:
+  - tag: Mo
+    von: "09:50"
+    bis: "11:30"
+    raum: "S1|01 A1"
+    titel: Beispielvorlesung A
+  - tag: Mo
+    von: "11:40"
+    bis: "13:20"
+    raum: "S1|03 100"
+    titel: Beispielübung A
+
+  - tag: Di
+    von: "08:00"
+    bis: "09:40"
+    raum: "L1|01 100"
+    titel: Beispielvorlesung B
+    raumwechsel:
+      - ab: 2027-01-12
+        raum: "L1|01 200"
+
+  - tag: Mi
+    von: "08:00"
+    bis: "09:40"
+    raum: "S1|05 100"
+    titel: Termin, den ich nicht besuche
+    aktiv: false
+  - tag: Mi
+    von: "13:30"
+    bis: "15:10"
+    raum: "S1|05 100"
+    titel: Beispielseminar C
+
+  - tag: Do
+    von: "10:00"
+    bis: "11:30"
+    raum: "Lichtwiese, Raum offen"
+    campus: lichtwiese
+    titel: Beispielübung B

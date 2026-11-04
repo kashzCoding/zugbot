@@ -1,0 +1,22 @@
+[Unit]
+Description=Zug-Bot (Pendelplaner Gelnhausen - TU Darmstadt)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+# Bei Dauerabsturz nicht endlos neu starten (max. 5 Starts in 10 min)
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bene635
+WorkingDirectory=/home/bene635/zugbot
+ExecStart=/home/bene635/zugbot/venv/bin/zugbot run
+Restart=always
+RestartSec=20
+Environment=TZ=Europe/Berlin
+Environment=PYTHONUNBUFFERED=1
+# Pi Zero hat 426 MB RAM, studibot braucht auch etwas
+MemoryMax=120M
+
+[Install]
+WantedBy=multi-user.target

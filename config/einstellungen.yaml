@@ -1,0 +1,88 @@
+# Einstellungen für den Zug-Bot.
+# Geheimes (ntfy-Topic) steht NICHT hier, sondern in der .env.
+# Nach einer Änderung: sudo systemctl restart zugbot
+
+zeitzone: Europe/Berlin
+
+bahn:
+  timeout_sekunden: 40     # Transitous antwortet meist in 1-3 s
+  cache_sekunden: 90       # gleiche Anfrage innerhalb dieser Zeit nicht nochmal stellen
+  ausfall_meldung_nach: 3  # so viele Fehlversuche in Folge, bis EINE ntfy-Meldung kommt
+
+# Haltestellen.
+#   name = Anzeigename/Suchbegriff
+#   id   = Transitous-ID (DELFI), gefunden mit "zugbot haltestellen"
+#   eva  = DB-Bahnhofsnummer, nur für Gleise über die DB-Timetables-API;
+#          "zugbot haltestellen --eva" trägt sie ein, sobald DB_API_KEY in der .env steht.
+#          Bei reinen Tram-/Bushalten bleibt eva leer.
+haltestellen:
+  gelnhausen:         {name: "Gelnhausen", id: "de-DELFI_de:06435:11058", eva: null}
+  frankfurt_hbf:      {name: "Frankfurt (Main) Hauptbahnhof", id: "de-DELFI_de:06412:10_G", eva: null}
+  frankfurt_sued:     {name: "Frankfurt (Main) Südbahnhof", id: "de-DELFI_de:06412:912_G", eva: null}
+  darmstadt_hbf:      {name: "Darmstadt Hauptbahnhof", id: "de-DELFI_de:06411:4734", eva: null}
+  lichtwiese_bahnhof: {name: "Darmstadt TU-Lichtwiese Bahnhof", id: "de-DELFI_de:06411:16027", eva: null}
+  # Hier kennt Transitous keine Gruppen-ID, die Steig-ID schließt alle Steige ein
+  lichtwiese_campus:  {name: "Darmstadt TU-Lichtwiese/Campus", id: "de-DELFI_de:06411:24730:2:2"}
+  schloss:            {name: "Darmstadt Schloss", id: "de-DELFI_de:06411:16016"}
+  willy_brandt_platz: {name: "Darmstadt Willy-Brandt-Platz", id: "de-DELFI_de:06411:24747"}
+
+# Welche Haltestellen als Ziel (Hinweg) bzw. Start (Rückweg) pro Campus in Frage kommen.
+campus:
+  lichtwiese:
+    anzeige: Lichtwiese
+    halte: [lichtwiese_bahnhof, lichtwiese_campus]
+  stadtmitte:
+    anzeige: Stadtmitte
+    halte: [schloss, willy_brandt_platz]
+
+# Route muss über einen dieser Halte führen:
+pflicht_ueber: [frankfurt_hbf, frankfurt_sued]
+
+# Verbindungen, die auf den gefahrenen Abschnitten hier halten oder umsteigen,
+# werden verworfen. Vergleich über Teil des Haltestellennamens.
+verbotene_halte: ["Babenhausen", "Groß-Umstadt", "Gross-Umstadt"]
+
+# Deutschlandticket: nur Nahverkehr.
+# transit_modi geht direkt an die Suche (MOTIS-Verkehrsmittel). Nicht dabei:
+# HIGHSPEED_RAIL (ICE), LONG_DISTANCE (IC/EC), NIGHT_RAIL, COACH (Fernbus).
+transit_modi: [REGIONAL_RAIL, REGIONAL_FAST_RAIL, SUBURBAN, BUS, TRAM, SUBWAY, FERRY]
+# Zur Sicherheit prüft die Bewertung jedes Fahrzeug nochmal gegen diese Liste:
+erlaubte_produkte: [regionalExpress, regional, suburban, bus, tram, subway, ferry]
+
+umstieg:
+  mindestens_minuten: 5        # normaler Umstieg
+  darmstadt_hbf_minuten: 7     # in Darmstadt Hbf immer mindestens so viel
+  komfort_bis_minuten: 10      # bis hierhin gibt mehr Umstiegszeit Pluspunkte
+  # Stadtmitte: Zug und Tram/Bus werden getrennt gesucht und in Darmstadt Hbf
+  # zusammengesetzt. Länger als das soll man dort nicht warten müssen.
+  darmstadt_hbf_hoechstens_minuten: 30
+
+hinweg:
+  ankunftspuffer_minuten: 5    # so viele Minuten vor Veranstaltungsbeginn am Zielhalt sein
+  # Fußweg Haltestelle -> Raum wird ignoriert. Nur wenn er über 1,3 km liegt,
+  # hier die Gehzeit in Minuten eintragen (wird zum Puffer addiert).
+  gehzeit_minuten:
+    lichtwiese: 0
+    stadtmitte: 0
+
+rueckweg:
+  frueheste_abfahrt_nach_ende_minuten: 5   # Zeit vom Hörsaal zur Haltestelle
+
+# Gewichte der Bewertung, siehe zugbot/bewertung.py.
+bewertung:
+  strafe_pro_umstieg_minuten: 4     # ein Umstieg mehr "kostet" so viel wie 4 min früher losfahren
+  reserve_gewicht: 0.3              # Bonus je Minute Umstiegsreserve über dem Minimum (bis komfort_bis)
+
+ueberwachung:
+  intervall_normal_minuten: 30
+  intervall_nah_minuten: 5
+  nah_ab_minuten_vor_abfahrt: 60
+  # Verspätung der ersten Abfahrt ab dieser Größe melden (du kannst später los).
+  abfahrt_verspaetung_melden_ab_minuten: 5
+
+benachrichtigung:
+  abendplan_uhrzeit: "21:30"
+  morgen_push_minuten_vor_abfahrt: 60
+
+web:
+  port: 8080
