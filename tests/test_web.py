@@ -36,7 +36,8 @@ def status(url):
         return e.code, dict(e.headers)
 
 
-@pytest.mark.parametrize("pfad", ["/", "/index.html", "/api/status", "/falsch/", "/falsch/api/status",
+@pytest.mark.parametrize("pfad", ["/", "/index.html", "/api/status", "/api/wecker", "/falsch/",
+                                  "/falsch/api/status", "/falsch/api/wecker",
                                   f"/{SCHLUESSEL}x/", f"/{SCHLUESSEL[:-1]}/"])
 def test_ohne_richtigen_schluessel_404(basis, pfad):
     assert status(basis + pfad)[0] == 404

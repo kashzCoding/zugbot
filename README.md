@@ -164,6 +164,31 @@ also nicht weitergeben. Die Seite schickt keinen Referer an andere Seiten und is
 Suchmaschinen gesperrt. Das Dashboard selbst lauscht nur auf `127.0.0.1:8080`; von außen
 kommt man nur über Funnel hinein.
 
+### Weckzeit: `/api/wecker`
+
+`https://tradingbot.tailed8a6b.ts.net/<schlüssel>/api/wecker` liefert die Weckzeit für
+**morgen**: Abfahrt in Gelnhausen minus `wecker.vorlauf_minuten` (Standard 40, in
+`einstellungen.yaml`). Grundlage ist der gespeicherte Plan, der um 21:30 frisch berechnet
+wird; der Endpunkt selbst fragt keine Bahndaten ab. Ist die Abfahrt schon als verspätet
+bekannt, rechnet er mit der neuen Zeit.
+
+```json
+{"datum": "2026-11-05", "wochentag": "Donnerstag", "vorlauf_minuten": 40, "status": "ok",
+ "frei": false, "weckzeit": "05:57", "weckzeit_iso": "2026-11-05T05:57:00+01:00",
+ "abfahrt": "06:37", "linie": "RE 50", "gleis": "2", "campus": "Lichtwiese",
+ "erster_termin": {"beginn": "08:00", "titel": "GdD Hörsaalübung", "raum": "L4|02 202"}, ...}
+```
+
+| `status` | Bedeutung | `weckzeit` |
+|---|---|---|
+| `ok` | Unitag, Verbindung geplant | gesetzt |
+| `frei` | kein Unitag (`grund` sagt warum) | `null` |
+| `keine_verbindung` | Unitag, aber keine passende Hinfahrt (`hinweis`) | `null` |
+| `noch_kein_plan` | Dienst hat morgen noch nicht geplant (kurz nach dem Start) | `null` |
+
+Gedacht z. B. für einen iPhone-Kurzbefehl, der abends nach 21:30 die Adresse abruft,
+`weckzeit` ausliest und damit den Wecker stellt (oder bei `frei` keinen).
+
 Neuen Schlüssel würfeln (alte Adresse wird ungültig):
 
 ```bash

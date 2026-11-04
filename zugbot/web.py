@@ -118,6 +118,52 @@ def morgen_daten(p: Optional[dict], d, regeln: Regeln, e: dict) -> dict:
     return daten
 
 
+def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
+    """Weckzeit für morgen: Abfahrt in Gelnhausen minus Vorlauf (einstellungen.yaml).
+
+    Liest nur den gespeicherten Plan, fragt keine Bahndaten ab. Gedacht z. B.
+    für einen iPhone-Kurzbefehl, der abends den Wecker stellt.
+    """
+    e = config.einstellungen()
+    vorlauf = e.get("wecker", {}).get("vorlauf_minuten", 40)
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    morgen = jetzt.date() + timedelta(days=1)
+    p = zustand.plan(zustand.laden(), morgen)
+    daten = {
+        "datum": morgen.isoformat(),
+        "wochentag": stundenplan.WOCHENTAGE_LANG[morgen.weekday()],
+        "vorlauf_minuten": vorlauf,
+    }
+    if p is None:
+        # Dienst hat morgen noch nicht geplant (passiert direkt nach dem Start kurz)
+        return {**daten, "status": "noch_kein_plan", "frei": None, "weckzeit": None}
+    if p["tag"]["frei"]:
+        return {**daten, "status": "frei", "frei": True, "grund": p["tag"]["grund"], "weckzeit": None}
+    termin = p["tag"]["termine"][0]
+    daten.update({
+        "frei": False,
+        "campus": texte.campus_name(p["tag"]["campus"]),
+        "erster_termin": {"beginn": datetime.fromisoformat(termin["von"]).strftime("%H:%M"),
+                          "titel": termin["titel"], "raum": termin["raum"]},
+    })
+    if not p.get("hin"):
+        return {**daten, "status": "keine_verbindung", "weckzeit": None,
+                "hinweis": p.get("fehler") or "Keine passende Hinfahrt gefunden."}
+    erste = Verbindung.aus_dict(p["hin"]).fahrten[0]
+    wecken = erste.ab - timedelta(minutes=vorlauf)
+    return {
+        **daten,
+        "status": "ok",
+        "weckzeit": f"{wecken:%H:%M}",
+        "weckzeit_iso": wecken.isoformat(),
+        "abfahrt": f"{erste.ab:%H:%M}",
+        "abfahrt_iso": erste.ab.isoformat(),
+        "linie": erste.linie,
+        "gleis": erste.gleis_ab,
+        "geplant_um": p.get("geplant_um"),
+    }
+
+
 def dashboard_daten() -> dict:
     e = config.einstellungen()
     regeln = Regeln.aus_einstellungen(e)
@@ -194,6 +240,13 @@ class Handler(BaseHTTPRequestHandler):
             self._senden(301, "text/plain", b"", {"Location": f"/{self.schluessel}/"})
         elif pfad in ("/", "/index.html"):
             self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes())
+        elif pfad == "/api/wecker":
+            try:
+                daten = json.dumps(wecker_daten(), ensure_ascii=False).encode()
+                self._senden(200, "application/json; charset=utf-8", daten)
+            except Exception:
+                log.exception("Wecker-Daten fehlgeschlagen")
+                self._senden(500, "application/json", b'{"fehler": "intern"}')
         elif pfad.lstrip("/") in BILDER:
             name = pfad.lstrip("/")
             self._senden(200, BILDER[name], (STATIC / name).read_bytes())

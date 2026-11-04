@@ -86,3 +86,7 @@ benachrichtigung:
 
 web:
   port: 8080
+
+# /api/wecker: Weckzeit = Abfahrt in Gelnhausen minus so viele Minuten
+wecker:
+  vorlauf_minuten: 40
