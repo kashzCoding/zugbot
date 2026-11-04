@@ -81,10 +81,11 @@ def cmd_haltestellen(args) -> int:
         for key, h in e["haltestellen"].items():
             if "eva" not in h:
                 continue
-            eva = db.eva_suchen(h["name"])
-            print(f"{key:<20} {h['name']:<34} -> {eva or 'nicht gefunden'}")
-            if eva:
-                gefunden[key] = eva
+            treffer = db.eva_suchen(h["name"])
+            print(f"{key:<20} {h['name']:<34} -> " +
+                  (f"{treffer[0]} ({treffer[1]})" if treffer else "nicht gefunden"))
+            if treffer:
+                gefunden[key] = treffer[0]
         config.schreibe_haltestellen_feld("eva", gefunden)
         print("EVA-Nummern in config/einstellungen.yaml eingetragen.")
         return 0

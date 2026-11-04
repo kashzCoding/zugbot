@@ -33,6 +33,9 @@ BASIS = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
 ZUG_PRODUKTE = {"regional", "regionalExpress", "suburban"}
 PLAN_CACHE_S = 6 * 3600      # Fahrplan einer Stunde ändert sich kaum
 AENDERUNG_CACHE_S = 90       # Änderungen (Gleiswechsel) frisch halten
+# Die DB-Tafel reicht nur ca. 18 h voraus, weiter weg kommt 404. Eine leere
+# Antwort deshalb nur kurz merken, sonst fehlen die Gleise unnötig lange.
+LEER_CACHE_S = 30 * 60
 
 
 class DbGleise:
@@ -52,8 +55,10 @@ class DbGleise:
 
     def _xml(self, pfad: str, max_alter: float) -> Optional[ET.Element]:
         jetzt = time.monotonic()
-        if pfad in self._cache and jetzt - self._cache[pfad][0] < max_alter:
-            return self._cache[pfad][1]
+        if pfad in self._cache:
+            zeit, alt = self._cache[pfad]
+            if jetzt - zeit < (max_alter if alt is not None else min(max_alter, LEER_CACHE_S)):
+                return alt
         try:
             r = self.session.get(BASIS + pfad, timeout=20)
             # 404 = keine Fahrten in dieser Stunde, kein Fehler
@@ -68,12 +73,22 @@ class DbGleise:
             self._cache.clear()
         return wurzel
 
-    def eva_suchen(self, name: str) -> Optional[str]:
-        wurzel = self._xml("/station/" + quote(name, safe=""), 0)
-        if wurzel is None:
-            return None
-        st = wurzel.find("station")
-        return st.get("eva") if st is not None else None
+    @staticmethod
+    def _db_schreibweisen(name: str) -> list[str]:
+        """Transitous: 'Frankfurt (Main) Hauptbahnhof', DB: 'Frankfurt(Main)Hbf'."""
+        db = (name.replace(" (Main) ", "(Main)").replace("Hauptbahnhof", "Hbf")
+              .replace("Südbahnhof", "Süd").removesuffix(" Bahnhof"))
+        varianten = [name, db, db.replace("(Main)", "(Main) "), name.removesuffix(" Bahnhof")]
+        return list(dict.fromkeys(varianten))   # Reihenfolge behalten, doppelte weg
+
+    def eva_suchen(self, name: str) -> Optional[tuple[str, str]]:
+        """Gibt (EVA-Nummer, DB-Name) zurück oder None."""
+        for versuch in self._db_schreibweisen(name):
+            wurzel = self._xml("/station/" + quote(versuch, safe=""), 0)
+            st = wurzel.find("station") if wurzel is not None else None
+            if st is not None:
+                return st.get("eva"), st.get("name")
+        return None
 
     # --- Zuordnung ---
     def _eintraege(self, eva: str, zeit: datetime) -> dict[str, ET.Element]:
@@ -108,7 +123,9 @@ class DbGleise:
             e = s.find(art)
             if e is None or e.get("pt") != pt:
                 continue
-            if nummer and e.get("l") and e.get("l") != nummer:
+            # DB schreibt "RE50", "S6"; wir haben "RE 50", "S6". Nur die Ziffern
+            # vergleichen. Wichtig, weil z. B. RE50 und RB46 in Gelnhausen beide 06:37 fahren.
+            if nummer and e.get("l") and self._liniennummer(e.get("l")) != nummer:
                 continue
             return e
         return None

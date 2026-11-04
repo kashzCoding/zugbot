@@ -16,11 +16,11 @@ bahn:
 #          "zugbot haltestellen --eva" trägt sie ein, sobald DB_API_KEY in der .env steht.
 #          Bei reinen Tram-/Bushalten bleibt eva leer.
 haltestellen:
-  gelnhausen:         {name: "Gelnhausen", id: "de-DELFI_de:06435:11058", eva: null}
-  frankfurt_hbf:      {name: "Frankfurt (Main) Hauptbahnhof", id: "de-DELFI_de:06412:10_G", eva: null}
-  frankfurt_sued:     {name: "Frankfurt (Main) Südbahnhof", id: "de-DELFI_de:06412:912_G", eva: null}
-  darmstadt_hbf:      {name: "Darmstadt Hauptbahnhof", id: "de-DELFI_de:06411:4734", eva: null}
-  lichtwiese_bahnhof: {name: "Darmstadt TU-Lichtwiese Bahnhof", id: "de-DELFI_de:06411:16027", eva: null}
+  gelnhausen:         {name: "Gelnhausen", id: "de-DELFI_de:06435:11058", eva: "8000117"}
+  frankfurt_hbf:      {name: "Frankfurt (Main) Hauptbahnhof", id: "de-DELFI_de:06412:10_G", eva: "8000105"}
+  frankfurt_sued:     {name: "Frankfurt (Main) Südbahnhof", id: "de-DELFI_de:06412:912_G", eva: "8002041"}
+  darmstadt_hbf:      {name: "Darmstadt Hauptbahnhof", id: "de-DELFI_de:06411:4734", eva: "8000068"}
+  lichtwiese_bahnhof: {name: "Darmstadt TU-Lichtwiese Bahnhof", id: "de-DELFI_de:06411:16027", eva: "8001386"}
   # Hier kennt Transitous keine Gruppen-ID, die Steig-ID schließt alle Steige ein
   lichtwiese_campus:  {name: "Darmstadt TU-Lichtwiese/Campus", id: "de-DELFI_de:06411:24730:2:2"}
   schloss:            {name: "Darmstadt Schloss", id: "de-DELFI_de:06411:16016"}
