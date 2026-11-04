@@ -49,6 +49,17 @@ def test_mit_schluessel_seite(basis):
     assert "noindex" in kopf["X-Robots-Tag"]
 
 
+@pytest.mark.parametrize("datei", ["logo.svg", "apple-touch-icon.png", "favicon-32.png"])
+def test_bilder_nur_mit_schluessel(basis, datei):
+    assert status(f"{basis}/{SCHLUESSEL}/{datei}")[0] == 200
+    assert status(f"{basis}/{datei}")[0] == 404
+
+
+def test_keine_anderen_dateien(basis):
+    for pfad in ("index.html/../web.py", "../config.py", "static/logo.svg", "web.py"):
+        assert status(f"{basis}/{SCHLUESSEL}/{pfad}")[0] == 404
+
+
 def test_ohne_schraegstrich_weiterleitung(basis):
     code, kopf = status(f"{basis}/{SCHLUESSEL}")
     assert code == 301 and kopf["Location"] == f"/{SCHLUESSEL}/"

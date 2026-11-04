@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Zug-Bot">
+  <!-- Zug-Bot-Logo: der Pendelweg als Linie, grob nach der echten Lage.
+       Gelnhausen (oben rechts, Ring) -> Frankfurt (Umstieg, links) -> Darmstadt (Ziel, orange). -->
+  <rect width="512" height="512" rx="116" fill="#3a2fd6"/>
+  <path d="M384 136 C300 148 176 156 158 236 C142 306 214 352 318 372"
+        fill="none" stroke="#ffffff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Start: Gelnhausen -->
+  <circle cx="384" cy="136" r="34" fill="#3a2fd6" stroke="#ffffff" stroke-width="20"/>
+  <!-- Umstieg: Frankfurt -->
+  <circle cx="158" cy="236" r="22" fill="#3a2fd6" stroke="#ffffff" stroke-width="14"/>
+  <!-- Ziel: Darmstadt -->
+  <circle cx="334" cy="374" r="46" fill="#ffb547"/>
+</svg>

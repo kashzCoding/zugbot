@@ -8,6 +8,9 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Zug-Bot">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Zug-Bot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,7 +51,8 @@
   .links { display: grid; gap: 12px; }
 
   .kopf { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 2px; }
-  .kopf h1 { font-size: 17px; font-weight: 700; margin: 0; }
+  .kopf h1 { font-size: 17px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 9px; }
+  .kopf h1 img { width: 24px; height: 24px; border-radius: 6px; }
   .live { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--grau); font-weight: 500; }
   .live .punkt { width: 8px; height: 8px; border-radius: 50%; background: var(--punkt); }
   .live.nah .punkt { box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: puls 2s infinite; }
@@ -110,7 +114,7 @@
 <body>
 <main class="seite" id="seite">
   <header class="kopf">
-    <h1 id="datum">Zug-Bot</h1>
+    <h1><img src="logo.svg" alt=""><span id="datum">Zug-Bot</span></h1>
     <div class="live" id="live"><span class="punkt" aria-hidden="true"></span><span id="modus">lädt</span></div>
   </header>
   <div class="stoerung" id="stoerung" role="status" hidden></div>

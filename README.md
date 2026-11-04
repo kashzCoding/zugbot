@@ -1,3 +1,5 @@
+<p align="center"><img src="zugbot/static/logo.svg" width="112" alt="Zug-Bot-Logo: Linie von Gelnhausen über Frankfurt nach Darmstadt"></p>
+
 # Zug-Bot
 
 Plant anhand des Stundenplans die Fahrt Gelnhausen ↔ TU Darmstadt, überwacht sie live,

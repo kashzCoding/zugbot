@@ -24,6 +24,12 @@ from .modell import Verbindung
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
+# Nur diese Dateien werden ausgeliefert (feste Liste statt Dateisystem-Zugriff)
+BILDER = {
+    "logo.svg": "image/svg+xml",
+    "apple-touch-icon.png": "image/png",   # Symbol für "Zum Home-Bildschirm"
+    "favicon-32.png": "image/png",
+}
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
           "September", "Oktober", "November", "Dezember"]
 
@@ -188,6 +194,9 @@ class Handler(BaseHTTPRequestHandler):
             self._senden(301, "text/plain", b"", {"Location": f"/{self.schluessel}/"})
         elif pfad in ("/", "/index.html"):
             self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes())
+        elif pfad.lstrip("/") in BILDER:
+            name = pfad.lstrip("/")
+            self._senden(200, BILDER[name], (STATIC / name).read_bytes())
         elif pfad == "/api/status":
             try:
                 daten = json.dumps(dashboard_daten(), ensure_ascii=False).encode()
