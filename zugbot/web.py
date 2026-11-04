@@ -1,7 +1,11 @@
 """Dashboard: kleine Webseite + api/status (JSON), ausgeliefert vom Pi.
 
 Bewusst nur mit der Python-Standardbibliothek (http.server), damit auf dem
-Pi Zero kein zusätzliches Framework RAM braucht. Nur lesend, keine Eingaben.
+Pi Zero kein zusätzliches Framework RAM braucht.
+
+Schreiben kann das Dashboard nur Wünsche (wuensche.py): eine Option wählen
+(POST api/waehlen) und eigene Zeiten setzen (POST api/anpassen). Den Plan
+selbst ändert danach der Dienst.
 
 Öffentlich erreichbar über Tailscale Funnel. Schutz: Die Seite antwortet nur
 unter /<DASHBOARD_SCHLUESSEL>/ (aus der .env), alles andere ist 404. Ohne
@@ -18,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 
-from . import bewertung, config, stundenplan, texte, zustand
+from . import bewertung, config, stundenplan, takt, texte, wuensche, zustand
 from .bewertung import Regeln
 from .modell import Verbindung
 
@@ -30,6 +34,8 @@ BILDER = {
     "apple-touch-icon.png": "image/png",   # Symbol für "Zum Home-Bildschirm"
     "favicon-32.png": "image/png",
 }
+MAX_ANFRAGE_BYTES = 4096
+TAGE_ANPASSEN = 8     # so viele Tage ab heute zeigt "Zeiten anpassen"
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
           "September", "Oktober", "November", "Dezember"]
 
@@ -100,22 +106,93 @@ def morgen_daten(p: Optional[dict], d, regeln: Regeln, e: dict) -> dict:
     v = Verbindung.aus_dict(p["hin"]) if p.get("hin") else None
     termin = p["tag"]["termine"][0]
     t_von = datetime.fromisoformat(termin["von"])
+    eigene = p["tag"].get("eigene") or {}
     daten = {"wochentag": wt, "frei": False, "campus": texte.campus_name(p["tag"]["campus"]),
-             "termin": f"{t_von:%H:%M} {termin['titel']}, {termin['raum']}"}
+             "termin": f"{t_von:%H:%M} {termin['titel']}, {termin['raum']}".rstrip(", "),
+             "eigene": f"Eigene Zeit: {wuensche.beschreibung(eigene)}" if eigene else ""}
     if v is None:
         daten["fehlt"] = p.get("fehler") or "Keine Verbindung gefunden."
         return daten
-    erste = v.fahrten[0]
-    ffm = next((u for u in bewertung.umstiege(v, regeln) if "frankfurt" in u.ort.lower()), None)
     push = v.ab_plan - timedelta(minutes=e["benachrichtigung"]["morgen_push_minuten_vor_abfahrt"])
-    daten.update({
-        "ab": f"{erste.ab:%H:%M}", "gleis": _gleis_label(erste),
-        "an": f"an {v.an:%H:%M}", "dauer": texte.dauer(v.dauer_min),
-        "umstieg": f"Umstieg {texte.kurzname(ffm.ort)} {ffm.minuten} min" if ffm else
-                   f"{v.umstiege} Umstieg(e)",
-        "push": f"Morgen-Push um {push:%H:%M}",
-    })
+    daten.update(kompakt(v, regeln, (p.get("stadt") or {}).get("hin")))
+    daten["push"] = f"Morgen-Push um {push:%H:%M}"
     return daten
+
+
+def _umstieg_text(v: Verbindung, regeln: Regeln) -> str:
+    ffm = next((u for u in bewertung.umstiege(v, regeln) if "frankfurt" in u.ort.lower()), None)
+    return f"Umstieg {texte.kurzname(ffm.ort)} {ffm.minuten} min" if ffm else f"{v.umstiege} Umstieg(e)"
+
+
+def kompakt(v: Verbindung, regeln: Regeln, stadt: Optional[dict]) -> dict:
+    """Kurzform einer Verbindung (Karte "Morgen", wischbare Optionen)."""
+    erste = v.fahrten[0]
+    return {
+        "ab": f"{erste.ab:%H:%M}", "gleis": _gleis_label(erste),
+        "von": texte.kurzname(erste.von.name),
+        "an": f"an {v.an:%H:%M}", "dauer": texte.dauer(v.dauer_min),
+        "umstieg": _umstieg_text(v, regeln),
+        "linien": " › ".join(a.linie for a in v.fahrten),
+        "stadt": takt.info(stadt, v, regeln),
+    }
+
+
+def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetime,
+             w: dict, voll: bool = False) -> list[dict]:
+    """Alle Optionen einer Richtung, nach Abfahrt sortiert (zum Wischen).
+
+    Die überwachte Verbindung kommt mit Echtzeit aus p[richtung]; die anderen
+    sind Fahrplanstand der letzten Planung. Abgefahrene fallen weg.
+    """
+    if not p or not p.get(richtung):
+        return []
+    gewaehlt = Verbindung.aus_dict(p[richtung])
+    g_key = gewaehlt.schluessel()
+    liste = [Verbindung.aus_dict(o) for o in (p.get("optionen") or {}).get(richtung, [])]
+    empfohlen = liste[0].schluessel() if liste else g_key
+    if g_key not in {o.schluessel() for o in liste}:
+        liste.append(gewaehlt)            # z. B. unterwegs neu geplant
+    liste = [gewaehlt if o.schluessel() == g_key else o for o in liste]
+    wunsch = wuensche.wahl(w, d, richtung)
+    offen = wunsch if wunsch and wunsch != (p.get("wahl") or {}).get(richtung) else None
+    stadt = (p.get("stadt") or {}).get(richtung)
+    ergebnis = []
+    for o in sorted(liste, key=lambda x: x.ab_plan):
+        k = o.schluessel()
+        if k != g_key and o.ab <= jetzt:
+            continue
+        daten = fahrt_daten(o, regeln, jetzt) if voll else kompakt(o, regeln, stadt)
+        if voll:
+            daten["stadt"] = takt.info(stadt, o, regeln)
+        daten.update({"schluessel": k, "gewaehlt": k == g_key and not offen,
+                      "wird_gewaehlt": k == offen, "empfohlen": k == empfohlen,
+                      "fahrplan": k != g_key})
+        ergebnis.append(daten)
+    return ergebnis
+
+
+def anpassen_daten(z: dict, w: dict, heute) -> dict:
+    """Für den Bereich "Zeiten anpassen": die nächsten Tage mit Stundenplan und eigenen Zeiten."""
+    e = config.einstellungen()
+    plan = config.stundenplan_roh()
+    tage = []
+    for i in range(TAGE_ANPASSEN):
+        d = heute + timedelta(days=i)
+        t = stundenplan.tag(d, plan)
+        if t.frei:
+            standard = f"frei ({t.grund})" if t.grund else "frei"
+        else:
+            standard = (f"{t.erster.von:%H:%M} bis {t.letzter.bis:%H:%M}, {texte.campus_name(t.campus)}")
+        name = "Heute" if i == 0 else "Morgen" if i == 1 else stundenplan.WOCHENTAGE_LANG[d.weekday()]
+        eigene = wuensche.anpassung(w, d)
+        p = zustand.plan(z, d)
+        tage.append({
+            "datum": d.isoformat(), "name": f"{name}, {d.day}.{d.month}.",
+            "standard": standard, "eigene": eigene, "eigene_text": wuensche.beschreibung(eigene),
+            "ausstehend": bool(p) and (p["tag"].get("eigene") != eigene),
+        })
+    return {"tage": tage,
+            "campi": [{"wert": k, "name": c.get("anzeige", k)} for k, c in e["campus"].items()]}
 
 
 def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
@@ -145,6 +222,7 @@ def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
         "campus": texte.campus_name(p["tag"]["campus"]),
         "erster_termin": {"beginn": datetime.fromisoformat(termin["von"]).strftime("%H:%M"),
                           "titel": termin["titel"], "raum": termin["raum"]},
+        "eigene_zeiten": p["tag"].get("eigene"),
     })
     if not p.get("hin"):
         return {**daten, "status": "keine_verbindung", "weckzeit": None,
@@ -175,13 +253,28 @@ def dashboard_daten() -> dict:
     modus = status.get("modus", "normal")
     ue = e["ueberwachung"]
 
-    aktiv = None
+    w = wuensche.laden()
+    p_heute = zustand.plan(z, heute)
+    aktiv, aktiv_richtung = None, None
     for r in ("hin", "rueck"):
         v = zustand.verbindung(z, heute, r)
         if v and v.an >= jetzt:
-            aktiv = fahrt_daten(v, regeln, jetzt)
+            aktiv, aktiv_richtung = fahrt_daten(v, regeln, jetzt), r
+            aktiv["stadt"] = takt.info((p_heute.get("stadt") or {}).get(r), v, regeln)
+            # Wählen nur, solange die Fahrt noch nicht begonnen hat
+            aktiv["optionen"] = optionen(p_heute, heute, r, regeln, jetzt, w, voll=True) if v.ab > jetzt else []
+            aktiv["datum"], aktiv["richtung_wert"] = heute.isoformat(), r
             break
-    p_heute = zustand.plan(z, heute)
+    p_morgen = zustand.plan(z, morgen)
+    weitere = []    # wischbare Kurzkarten: Heute zurück (während der Hinfahrt), Morgen hin/zurück
+    if aktiv_richtung == "hin":
+        weitere.append({"titel": "Heute zurück", "datum": heute.isoformat(), "richtung": "rueck",
+                        "optionen": optionen(p_heute, heute, "rueck", regeln, jetzt, w)})
+    weitere.append({"titel": "Morgen zurück", "datum": morgen.isoformat(), "richtung": "rueck",
+                    "optionen": optionen(p_morgen, morgen, "rueck", regeln, jetzt, w)})
+    morgen_karte = morgen_daten(p_morgen, morgen, regeln, e)
+    morgen_karte.update({"datum": morgen.isoformat(),
+                         "optionen": optionen(p_morgen, morgen, "hin", regeln, jetzt, w)})
     if aktiv is None:
         if p_heute and p_heute["tag"]["frei"]:
             leer = "Heute frei"
@@ -197,8 +290,45 @@ def dashboard_daten() -> dict:
         "aktualisiert": datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else "",
         "aktiv": aktiv,
         "leer": None if aktiv else leer,
-        "morgen": morgen_daten(zustand.plan(z, morgen), morgen, regeln, e),
+        "morgen": morgen_karte,
+        "weitere": [x for x in weitere if x["optionen"]],
+        "anpassen": anpassen_daten(z, w, heute),
     }
+
+
+# ------------------------------------------------------------ Schreiben
+def waehlen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
+    richtung, schluessel = daten.get("richtung"), daten.get("schluessel")
+    p = zustand.plan(zustand.laden(), d)
+    if richtung not in ("hin", "rueck") or not isinstance(schluessel, str) or not p:
+        raise ValueError("Diese Verbindung kenne ich nicht.")
+    for o in (p.get("optionen") or {}).get(richtung, []) + ([p[richtung]] if p.get(richtung) else []):
+        v = Verbindung.aus_dict(o)
+        if v.schluessel() == schluessel:
+            if v.ab <= jetzt:
+                raise ValueError("Diese Verbindung ist schon abgefahren.")
+            wuensche.waehlen(d, richtung, schluessel)
+            return {"ok": True, "text": f"{v.ab:%H:%M} wird übernommen."}
+    raise ValueError("Diese Verbindung gibt es nicht mehr, bitte neu laden.")
+
+
+def anpassen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
+    if daten.get("zuruecksetzen"):
+        wuensche.zuruecksetzen(d)
+        return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
+    a = wuensche.anpassen(d, an=daten.get("an"), rueck_ab=daten.get("rueck_ab"), campus=daten.get("campus"))
+    if a is None:
+        return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
+    hinweis = "" if d <= jetzt.date() + timedelta(days=1) else \
+        " Geplant wird ab dem Vortag."   # der Dienst plant nur heute und morgen
+    return {"ok": True, "text": f"Gespeichert ({wuensche.beschreibung(a)}), wird neu geplant.{hinweis}"}
+
+
+POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -259,6 +389,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._senden(500, "application/json", b'{"fehler": "intern"}')
         else:
             self._senden(404, "text/plain; charset=utf-8", "nicht gefunden".encode())
+
+    def _json(self, code: int, daten: dict) -> None:
+        self._senden(code, "application/json; charset=utf-8", json.dumps(daten, ensure_ascii=False).encode())
+
+    def do_POST(self):
+        pfad = self._innerer_pfad()
+        if pfad is None or pfad not in POST_ROUTEN:
+            self._senden(404, "text/plain; charset=utf-8", "nicht gefunden".encode())
+            return
+        # Nur JSON: ein Formular einer fremden Seite kann diesen Typ nicht ohne Weiteres senden
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            self._json(415, {"fehler": "Bitte als JSON senden."})
+            return
+        try:
+            laenge = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            laenge = -1
+        if not 0 < laenge <= MAX_ANFRAGE_BYTES:
+            self._json(413 if laenge > MAX_ANFRAGE_BYTES else 400, {"fehler": "Anfrage ungültig."})
+            return
+        try:
+            daten = json.loads(self.rfile.read(laenge))
+            if not isinstance(daten, dict):
+                raise ValueError("Anfrage ungültig.")
+            self._json(200, POST_ROUTEN[pfad](daten))
+        except json.JSONDecodeError:
+            self._json(400, {"fehler": "Anfrage ungültig."})
+        except ValueError as exc:
+            self._json(400, {"fehler": str(exc)})
+        except Exception:
+            log.exception("POST %s fehlgeschlagen", pfad)
+            self._json(500, {"fehler": "intern"})
 
     def log_message(self, fmt, *args):   # Zugriffe nicht ins Log schreiben
         pass

@@ -31,6 +31,8 @@ campus:
   lichtwiese:
     anzeige: Lichtwiese
     halte: [lichtwiese_bahnhof, lichtwiese_campus]
+    # Für die Takt-Anzeige (Trams/Busse ab/bis Darmstadt Hbf). Zum Bahnhof fährt keine Tram.
+    takt_halte: [lichtwiese_campus]
   stadtmitte:
     anzeige: Stadtmitte
     halte: [schloss, willy_brandt_platz]
@@ -67,6 +69,12 @@ hinweg:
 
 rueckweg:
   frueheste_abfahrt_nach_ende_minuten: 5   # Zeit vom Hörsaal zur Haltestelle
+
+# Weitere Verbindungen zur Auswahl im Dashboard (wischen).
+optionen:
+  hoechstens: 6
+  zeitfenster_minuten: 90          # Abfahrt höchstens so weit von der besten entfernt
+  laenger_hoechstens_minuten: 40   # Fahrzeit höchstens so viel länger als die beste
 
 # Gewichte der Bewertung, siehe zugbot/bewertung.py.
 bewertung:

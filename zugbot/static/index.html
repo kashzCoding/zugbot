@@ -49,6 +49,8 @@
     .links { display: grid; gap: 12px; }
   }
   .links { display: grid; gap: 12px; }
+  /* Raster-Elemente nicht durch breite Inhalte (Karussell) aufweiten lassen */
+  .seite > *, .links > * { min-width: 0; }
 
   .kopf { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 2px; }
   .kopf h1 { font-size: 17px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 9px; }
@@ -98,12 +100,59 @@
   .campus-chip { background: #ebe9fd; color: var(--akzent); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; }
   .morgen .reihe { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   .morgen .ab { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
+  .morgen .ab.klein-ab { font-size: 24px; }
   .morgen .gleis { font-size: 15px; font-weight: 600; color: var(--grau); }
   .morgen .an { font-size: 15px; color: var(--text); }
   .morgen ul { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; font-size: 14px; }
   .morgen li { display: flex; gap: 8px; align-items: center; }
   .morgen li svg { flex: none; }
   .termin { font-weight: 600; }
+
+  /* Wischbare Optionen */
+  .karussell { display: flex; align-items: flex-start; width: 100%; overflow-y: hidden; transition: height .2s; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+               -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .karussell::-webkit-scrollbar { display: none; }
+  @media (prefers-reduced-motion: reduce) { .karussell { transition: none; } }
+  .folie { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; padding-right: 2px; }
+  .k-kopf { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .k-pfeile { display: flex; gap: 6px; }
+  .k-pfeile button, .punkte button { border: 0; background: var(--chip); color: var(--text); cursor: pointer; font: inherit; }
+  .k-pfeile button { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; }
+  .k-pfeile button:disabled { opacity: .35; cursor: default; }
+  .punkte { display: flex; justify-content: center; gap: 2px; margin-top: 10px; }
+  .punkte button { width: 22px; height: 22px; border-radius: 50%; background: none; padding: 0; display: grid; place-items: center; }
+  .punkte button span { width: 7px; height: 7px; border-radius: 50%; background: #c3c8d2; }
+  .punkte button[aria-current="true"] span { background: var(--akzent); width: 9px; height: 9px; }
+  .wahl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip.ueberwacht { background: #ebe9fd; color: var(--akzent); }
+  .chip.empfohlen { background: #e6f4ea; color: var(--gruen); }
+  .knopf { border: 0; border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .knopf.primaer { background: var(--akzent); color: #fff; }
+  .knopf.zweit { background: var(--chip); color: var(--text); }
+  .knopf:disabled { opacity: .6; cursor: default; }
+  :focus-visible { outline: 3px solid var(--akzent); outline-offset: 2px; }
+
+  /* Tram/Bus der letzten Meile */
+  .stadt { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--chip); font-size: 13px; color: var(--grau); }
+  .stadt b { color: var(--text); font-weight: 700; }
+  .zeiten { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .zeiten span { background: #fff; color: var(--text); border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
+  .zeiten span.deine { background: var(--akzent); color: #fff; }
+
+  /* Zeiten anpassen */
+  details summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--grau); border-bottom: 2px solid var(--grau); transform: rotate(45deg); margin: 0 4px 4px; }
+  details[open] summary::after { transform: rotate(-135deg); margin-bottom: -4px; }
+  .formular { display: grid; gap: 12px; margin-top: 14px; }
+  .formular label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--grau); }
+  .formular input, .formular select { font: inherit; font-size: 16px; color: var(--text); background: var(--chip); border: 1px solid var(--linie); border-radius: 10px; padding: 9px 10px; min-height: 44px; width: 100%; }
+  .zwei { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .knoepfe { display: flex; gap: 8px; flex-wrap: wrap; }
+  .meldung { font-size: 13px; font-weight: 600; min-height: 1em; }
+  .meldung.fehler { color: var(--orange-text); }
+  .meldung.ok { color: var(--gruen); }
+  .eigene-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: var(--grau); }
 
   .stoerung { background: var(--orange-flaeche); color: var(--orange-text); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; }
   .fuss { font-size: 12px; color: var(--grau); text-align: center; line-height: 1.6; }
@@ -122,7 +171,31 @@
     <section class="akzent" id="akzent" aria-live="polite"></section>
     <section class="karte" id="verbindung" hidden></section>
   </div>
-  <section class="karte morgen" id="morgen"></section>
+  <div class="links">
+    <section class="karte morgen" id="morgen"></section>
+    <div id="weitere" class="links"></div>
+    <section class="karte" id="anpassen">
+      <details id="anpassen-auf">
+        <summary><h2>Zeiten anpassen</h2></summary>
+        <div class="formular">
+          <label>Tag <select id="a-tag"></select></label>
+          <div class="klein" id="a-standard"></div>
+          <div class="zwei">
+            <label>Da sein um <input type="time" id="a-an"></label>
+            <label>Zurück ab <input type="time" id="a-rueck"></label>
+          </div>
+          <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
+          <div class="klein">„Da sein um“ zählt wie ein Vorlesungsbeginn, du bist also 5 min vorher am Halt. Leere Felder bleiben wie im Stundenplan.</div>
+          <div class="knoepfe">
+            <button class="knopf primaer" id="a-speichern" type="button">Speichern</button>
+            <button class="knopf zweit" id="a-zurueck" type="button">Zurücksetzen</button>
+          </div>
+          <div class="meldung" id="a-meldung" role="status"></div>
+          <ul class="eigene-liste" id="a-liste"></ul>
+        </div>
+      </details>
+    </section>
+  </div>
   <footer class="fuss">
     <span id="stand"></span><br>
     Fahrplandaten: <a href="https://transitous.org/sources/">Transitous und Quellen</a>,
@@ -135,34 +208,94 @@
 const ICON = {
   umstieg: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   glocke: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3L4 11zM6.5 14h3" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  uhr: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" fill="none" stroke="#5b6270" stroke-width="1.6"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round"/></svg>',
   ort: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z" fill="none" stroke="#5b6270" stroke-width="1.6"/><circle cx="8" cy="6.5" r="1.6" fill="#5b6270"/></svg>'
 };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const PFEIL_L = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M9 2.5 4.5 7 9 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const PFEIL_R = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+let daten = null, schnell = 0, timer = null;
 
+/* ---------- Bausteine ---------- */
+function setzen(el, html) {      // nur neu zeichnen, wenn sich etwas geändert hat (Wischposition bleibt)
+  if (el.dataset.html === html) return false;
+  el.dataset.html = html; el.innerHTML = html; return true;
+}
+
+function stadtBox(st) {
+  if (!st) return "";
+  return `<div class="stadt"><b>${esc(st.titel)}:</b> ${esc(st.text)}
+    <div class="zeiten" aria-label="passende Abfahrten">${st.fahrten.map(f =>
+      `<span class="${f.deine ? "deine" : ""}" title="${esc(f.linie)}, an ${esc(f.an)}">${esc(f.ab)} ${esc(f.linie)}</span>`).join("")}</div></div>`;
+}
+
+function wahlZeile(o, datum, richtung) {
+  const marken = (o.empfohlen ? `<span class="chip empfohlen">Empfohlen</span>` : "")
+    + (o.fahrplan ? `<span class="chip">Fahrplan</span>` : "");
+  if (o.gewaehlt) return `<div class="wahl"><span class="chip ueberwacht">Wird überwacht</span>${marken}</div>`;
+  if (o.wird_gewaehlt) return `<div class="wahl"><span class="chip ueberwacht">Wird übernommen …</span>${marken}</div>`;
+  return `<div class="wahl"><button class="knopf primaer" type="button" data-waehlen="${esc(o.schluessel)}"
+    data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Diese nehmen</button>${marken}</div>`;
+}
+
+/* Karussell: Folien nebeneinander, wischen oder Pfeile/Punkte */
+function karussell(id, folien, titel) {
+  if (folien.length < 2) return (titel ? `<div class="k-kopf">${titel}</div>` : "") + (folien[0] || "");
+  return `<div class="k-kopf">${titel || ""}<span class="k-pfeile">
+      <button type="button" data-k="${id}" data-schritt="-1" aria-label="vorherige Option">${PFEIL_L}</button>
+      <button type="button" data-k="${id}" data-schritt="1" aria-label="nächste Option">${PFEIL_R}</button></span></div>
+    <div class="karussell" id="${id}" tabindex="0" aria-roledescription="Karussell" aria-label="${folien.length} Optionen">
+      ${folien.map((f, i) => `<div class="folie" role="group" aria-label="Option ${i + 1} von ${folien.length}">${f}</div>`).join("")}</div>
+    <div class="punkte" data-punkte="${id}">${folien.map((_, i) =>
+      `<button type="button" data-k="${id}" data-ziel="${i}" aria-label="Option ${i + 1}"><span></span></button>`).join("")}</div>`;
+}
+
+const position = {};
+function karussellStart(id, start) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const i = position[id] ?? start;
+  el.scrollLeft = i * el.clientWidth;
+  punkte(id, i);
+  el.onscroll = () => {
+    const j = Math.round(el.scrollLeft / el.clientWidth);
+    if (j !== position[id]) { position[id] = j; punkte(id, j); }
+  };
+}
+function punkte(id, i) {
+  const el = document.getElementById(id), n = el.children.length;
+  // so hoch wie die sichtbare Folie, sonst bleibt unter kurzen Optionen Leerraum
+  if (el.children[i]) el.style.height = el.children[i].offsetHeight + "px";
+  document.querySelectorAll(`[data-punkte="${id}"] button`).forEach((b, j) => b.setAttribute("aria-current", j === i));
+  document.querySelectorAll(`[data-k="${id}"][data-schritt]`).forEach(b =>
+    b.disabled = (b.dataset.schritt === "-1" && i <= 0) || (b.dataset.schritt === "1" && i >= n - 1));
+}
+function startIndex(liste) {
+  const i = liste.findIndex(o => o.wird_gewaehlt);
+  return i >= 0 ? i : Math.max(0, liste.findIndex(o => o.gewaehlt));
+}
+
+/* ---------- Karten ---------- */
 function akzent(d) {
   const el = document.getElementById("akzent");
   if (!d.aktiv) {
-    el.innerHTML = `<div class="oben">Heute</div><div class="gross">${esc(d.leer)}</div>`
-      + (d.morgen && !d.morgen.frei && d.morgen.ab ? `<div class="zeile">Morgen ${esc(d.morgen.ab)} ab Gelnhausen</div>` : "");
+    setzen(el, `<div class="oben">Heute</div><div class="gross">${esc(d.leer)}</div>`
+      + (d.morgen && !d.morgen.frei && d.morgen.ab ? `<div class="zeile">Morgen ${esc(d.morgen.ab)} ab Gelnhausen</div>` : ""));
     return;
   }
   const a = d.aktiv;
   const balken = a.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}"></span>`).join("");
   const text = a.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}">${esc(s.kurz)}${s.plus ? " " + esc(s.plus) : ""}</span>`).join("");
-  el.innerHTML = `<div class="oben">${esc(a.richtung)}</div>
+  setzen(el, `<div class="oben">${esc(a.richtung)}</div>
     <div class="gross">${esc(a.los)}</div>
     <div class="zeile">${esc(a.zeile)}</div>
     ${a.hinweis ? `<div class="hinweis">${esc(a.hinweis)}</div>` : ""}
     <div class="balken" aria-hidden="true">${balken}</div>
-    <div class="beschriftung">${text}</div>`;
+    <div class="beschriftung">${text}</div>`);
 }
 
-function verbindung(d) {
-  const el = document.getElementById("verbindung");
-  if (!d.aktiv) { el.hidden = true; return; }
-  el.hidden = false;
-  const a = d.aktiv;
-  let html = `<div class="karte-kopf"><h2>Verbindung</h2><span class="klein">Fahrzeit gesamt ${esc(a.fahrzeit)}</span></div>`;
+function details(a) {
+  let html = "";
   a.abschnitte.forEach((s, i) => {
     const spaet = s.status_art === "spaet";
     html += `<div class="abschnitt">
@@ -175,32 +308,162 @@ function verbindung(d) {
     const u = a.umstiege[i];
     if (u) html += `<div class="umstieg ${u.warn ? "warn" : ""}">${esc(u.text)}</div>`;
   });
-  el.innerHTML = html;
+  return html + stadtBox(a.stadt);
+}
+
+function verbindung(d) {
+  const el = document.getElementById("verbindung");
+  if (!d.aktiv) { el.hidden = true; return; }
+  el.hidden = false;
+  const a = d.aktiv, opt = a.optionen || [];
+  if (opt.length < 2) {
+    setzen(el, `<div class="karte-kopf"><h2>Verbindung</h2><span class="klein">Fahrzeit gesamt ${esc(a.fahrzeit)}</span></div>` + details(a));
+    return;
+  }
+  const folien = opt.map(o => `<div class="karte-kopf"><span class="klein">${esc(o.zeile)}</span><span class="klein">${esc(o.fahrzeit)}</span></div>`
+    + details(o) + wahlZeile(o, a.datum, a.richtung_wert));
+  if (setzen(el, karussell("k-heute", folien, `<h2>Verbindungen</h2>`))) karussellStart("k-heute", startIndex(opt));
+}
+
+function kurzFolie(o, datum, richtung, gross) {
+  return `<div class="reihe"><span class="${gross ? "ab" : "ab klein-ab"}">${esc(o.ab)}</span>${o.gleis ? `<span class="gleis">${esc(o.gleis)}</span>` : ""}
+      <span class="an">${esc(o.an)} · ${esc(o.dauer)}</span></div>
+    <div class="klein">ab ${esc(o.von)} · ${esc(o.linien)}</div>
+    ${stadtBox(o.stadt)}${wahlZeile(o, datum, richtung)}`;
 }
 
 function morgen(d) {
   const m = d.morgen, el = document.getElementById("morgen");
   if (m.frei) {
-    el.innerHTML = `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2></div><div class="morgen"><div class="ab">frei</div>${m.grund ? `<div class="klein">${esc(m.grund)}</div>` : ""}</div>`;
+    setzen(el, `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2></div><div class="morgen"><div class="ab">frei</div>${m.grund ? `<div class="klein">${esc(m.grund)}</div>` : ""}</div>`);
     return;
   }
-  el.innerHTML = `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2><span class="campus-chip">${esc(m.campus)}</span></div>`
-    + (m.fehlt ? `<div class="stoerung">${esc(m.fehlt)}</div>` : `
-    <div class="reihe"><span class="ab">${esc(m.ab)}</span>${m.gleis ? `<span class="gleis">${esc(m.gleis)}</span>` : ""}
-      <span class="an">${esc(m.an)} · ${esc(m.dauer)}</span></div>
-    <div class="klein">ab Gelnhausen</div>`)
-    + `<ul>
-      ${m.umstieg ? `<li>${ICON.umstieg}<span>${esc(m.umstieg)}</span></li>` : ""}
+  const opt = m.optionen || [];
+  let mitte;
+  if (m.fehlt) mitte = `<div class="stoerung">${esc(m.fehlt)}</div>`;
+  else if (opt.length > 1) mitte = karussell("k-morgen", opt.map(o => kurzFolie(o, m.datum, "hin", true)),
+                                             `<span class="klein">${opt.length} Optionen, wischen zum Vergleichen</span>`);
+  else mitte = `<div class="reihe"><span class="ab">${esc(m.ab)}</span>${m.gleis ? `<span class="gleis">${esc(m.gleis)}</span>` : ""}
+      <span class="an">${esc(m.an)} · ${esc(m.dauer)}</span></div><div class="klein">ab Gelnhausen</div>${stadtBox(m.stadt)}`;
+  const html = `<div class="tag"><h2>Morgen, ${esc(m.wochentag)}</h2><span class="campus-chip">${esc(m.campus)}</span></div>`
+    + mitte + `<ul>
+      ${m.umstieg && opt.length < 2 ? `<li>${ICON.umstieg}<span>${esc(m.umstieg)}</span></li>` : ""}
       ${m.push ? `<li>${ICON.glocke}<span>${esc(m.push)}</span></li>` : ""}
-      <li>${ICON.ort}<span class="termin">${esc(m.termin)}</span></li>
+      ${m.eigene ? `<li>${ICON.uhr}<span>${esc(m.eigene)}</span></li>` : ""}
+      ${m.termin ? `<li>${ICON.ort}<span class="termin">${esc(m.termin)}</span></li>` : ""}
     </ul>`;
+  if (setzen(el, html) && opt.length > 1) karussellStart("k-morgen", startIndex(opt));
 }
+
+function weitere(d) {
+  const el = document.getElementById("weitere");
+  const karten = d.weitere.map((w, n) => {
+    const id = `k-w-${w.datum}-${w.richtung}`;
+    return `<section class="karte morgen"><div class="tag"><h2>${esc(w.titel)}</h2></div>`
+      + karussell(id, w.optionen.map(o => kurzFolie(o, w.datum, w.richtung, false)),
+                  w.optionen.length > 1 ? `<span class="klein">${w.optionen.length} Optionen</span>` : "")
+      + `</section>`;
+  }).join("");
+  if (setzen(el, karten)) d.weitere.forEach(w => karussellStart(`k-w-${w.datum}-${w.richtung}`, startIndex(w.optionen)));
+}
+
+/* ---------- Zeiten anpassen ---------- */
+function anpassen(d) {
+  const a = d.anpassen, sel = document.getElementById("a-tag"), campus = document.getElementById("a-campus");
+  const alt = sel.value;
+  const optionen = a.tage.map(t => `<option value="${esc(t.datum)}">${esc(t.name)}${t.eigene ? " (eigene Zeit)" : ""}</option>`).join("");
+  if (sel.dataset.html !== optionen) {
+    sel.dataset.html = optionen; sel.innerHTML = optionen;
+    sel.value = a.tage.some(t => t.datum === alt) ? alt : (a.tage[1] || a.tage[0]).datum;  // Standard: morgen
+    if (!alt) felderFuellen();
+  }
+  if (campus.options.length === 1) a.campi.forEach(c => campus.add(new Option(c.name, c.wert)));
+  const tag = aktuellerTag();
+  document.getElementById("a-standard").textContent = tag ? `Stundenplan: ${tag.standard}` : "";
+  document.getElementById("a-liste").innerHTML = a.tage.filter(t => t.eigene).map(t =>
+    `<li>${esc(t.name)}: ${esc(t.eigene_text)}${t.ausstehend ? " · wird geplant …" : ""}</li>`).join("");
+}
+function aktuellerTag() {
+  return daten && daten.anpassen.tage.find(t => t.datum === document.getElementById("a-tag").value);
+}
+function felderFuellen() {
+  const e = (aktuellerTag() || {}).eigene || {};
+  document.getElementById("a-an").value = e.an || "";
+  document.getElementById("a-rueck").value = e.rueck_ab || "";
+  document.getElementById("a-campus").value = e.campus || "";
+  document.getElementById("a-standard").textContent = aktuellerTag() ? `Stundenplan: ${aktuellerTag().standard}` : "";
+  meldung("", "");
+}
+function meldung(text, art) {
+  const m = document.getElementById("a-meldung");
+  m.textContent = text; m.className = "meldung " + art;
+}
+
+async function senden(pfad, inhalt) {
+  const r = await fetch(pfad, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(inhalt)});
+  const j = await r.json().catch(() => ({fehler: "Keine Antwort vom Pi."}));
+  if (!r.ok) throw new Error(j.fehler || "Fehler");
+  return j;
+}
+
+async function anpassenSenden(zurueck) {
+  const knoepfe = [document.getElementById("a-speichern"), document.getElementById("a-zurueck")];
+  knoepfe.forEach(b => b.disabled = true);
+  try {
+    const inhalt = {datum: document.getElementById("a-tag").value};
+    if (zurueck) inhalt.zuruecksetzen = true;
+    else Object.assign(inhalt, {an: document.getElementById("a-an").value, rueck_ab: document.getElementById("a-rueck").value,
+                                campus: document.getElementById("a-campus").value});
+    const j = await senden("api/anpassen", inhalt);
+    meldung(j.text, "ok");
+    if (zurueck) ["a-an", "a-rueck", "a-campus"].forEach(id => document.getElementById(id).value = "");
+    beschleunigen();
+  } catch (e) {
+    meldung(e.message, "fehler");
+  } finally {
+    knoepfe.forEach(b => b.disabled = false);
+  }
+}
+
+/* ---------- Ereignisse ---------- */
+document.addEventListener("click", async ev => {
+  const k = ev.target.closest("[data-k]");
+  if (k) {
+    const el = document.getElementById(k.dataset.k);
+    const ziel = k.dataset.ziel !== undefined ? +k.dataset.ziel : (position[k.dataset.k] || 0) + +k.dataset.schritt;
+    el.scrollTo({left: ziel * el.clientWidth, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+    return;
+  }
+  const w = ev.target.closest("[data-waehlen]");
+  if (w) {
+    w.disabled = true; w.textContent = "Wird übernommen …";
+    try {
+      await senden("api/waehlen", {datum: w.dataset.datum, richtung: w.dataset.richtung, schluessel: w.dataset.waehlen});
+      beschleunigen();
+    } catch (e) {
+      w.disabled = false; w.textContent = "Diese nehmen";
+      alert(e.message);
+    }
+  }
+});
+document.getElementById("a-tag").addEventListener("change", felderFuellen);
+document.getElementById("a-speichern").addEventListener("click", () => anpassenSenden(false));
+document.getElementById("a-zurueck").addEventListener("click", () => anpassenSenden(true));
+window.addEventListener("resize", () => Object.keys(position).forEach(id => {
+  const el = document.getElementById(id);
+  if (el) { el.scrollLeft = position[id] * el.clientWidth; punkte(id, position[id]); }
+}));
+
+/* Nach einer Änderung kurz öfter nachfragen, bis der Dienst sie übernommen hat */
+function beschleunigen() { schnell = 20; planen(1500); }
+function planen(ms) { clearTimeout(timer); timer = setTimeout(laden, ms); }
 
 async function laden() {
   try {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
     const r = await fetch("api/status", {cache: "no-store"});
     const d = await r.json();
+    daten = d;
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
     document.getElementById("live").classList.toggle("nah", d.modus.startsWith("live"));
@@ -208,13 +471,16 @@ async function laden() {
     st.hidden = !d.stoerung;
     st.textContent = d.stoerung ? "Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." : "";
     document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
-    akzent(d); verbindung(d); morgen(d);
+    akzent(d); verbindung(d); morgen(d); weitere(d); anpassen(d);
+    const offen = JSON.stringify(d).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
+    if (offen && schnell > 0) { schnell--; planen(3000); return; }
   } catch (e) {
     document.getElementById("modus").textContent = "Pi nicht erreichbar";
   }
+  schnell = 0;
+  planen(60000);
 }
 laden();
-setInterval(laden, 60000);
 </script>
 </body>
 </html>

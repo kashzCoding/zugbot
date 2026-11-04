@@ -1,4 +1,4 @@
-"""Befehle: zugbot plan | run | haltestellen | import-ics | test-push | neu-planen | status"""
+"""Befehle: zugbot plan | anpassen | run | haltestellen | import-ics | test-push | neu-planen | status"""
 
 from __future__ import annotations
 
@@ -32,17 +32,20 @@ def logging_einrichten(datei: bool) -> None:
 
 def cmd_plan(args) -> int:
     """Plant Hin- und Rückfahrt für ein Datum und zeigt sie an. Keine Benachrichtigung."""
-    from . import stundenplan, texte
+    from . import stundenplan, takt, texte, wuensche
     from .bahn import Bahn
     from .planer import Planer
 
     e = config.einstellungen()
     planer = Planer(Bahn(e), e)
-    tage = [date.fromisoformat(args.datum) + timedelta(days=i) for i in range(args.tage)]
+    start = wuensche.datum_lesen(args.datum)
+    tage = [start + timedelta(days=i) for i in range(args.tage)]
     for d in tage:
-        t = stundenplan.tag(d)
+        t = wuensche.tag(d)
         wt = stundenplan.WOCHENTAGE_LANG[d.weekday()]
         print(f"\n=== {wt}, {d:%d.%m.%Y} ===")
+        if t.eigene:
+            print(f"  Eigene Zeiten: {wuensche.beschreibung(t.eigene)}")
         for w in t.warnungen:
             print(f"  WARNUNG: {w}")
         if t.frei:
@@ -54,15 +57,54 @@ def cmd_plan(args) -> int:
         print(f"\n  Hinfahrt (an spätestens {planer.ziel_zeit(t):%H:%M}, "
               f"{hin.kandidaten} Kandidaten geprüft):")
         print(texte.terminal(hin.verbindung, planer.regeln))
+        stadt_hin = planer.stadtfahrten("hin", t.campus, hin.optionen)
+        print(texte.optionen_und_takt(hin, takt.info(stadt_hin, hin.verbindung, planer.regeln)
+                                      if hin.verbindung else None))
         rueck = planer.rueckweg(t)
-        print(f"\n  Rückfahrt (ab frühestens {planer.frueheste_rueckfahrt(t):%H:%M}, "
+        ab = planer.frueheste_rueckfahrt(t)
+        print(f"\n  Rückfahrt (ab frühestens {ab:%H:%M}, "
               f"{rueck.kandidaten} Kandidaten geprüft):")
         print(texte.terminal(rueck.verbindung, planer.regeln))
+        stadt_rueck = planer.stadtfahrten("rueck", t.campus, rueck.optionen, ab)
+        print(texte.optionen_und_takt(rueck, takt.info(stadt_rueck, rueck.verbindung, planer.regeln)
+                                      if rueck.verbindung else None))
         if args.details:
             for name, erg in (("Hin", hin), ("Rück", rueck)):
                 for v in erg.verworfen:
                     print(f"    verworfen ({name}): {v}")
     print(f"\n({planer.bahn.anfragen_heute.get(date.today().isoformat(), 0)} Anfragen an Transitous)")
+    return 0
+
+
+def cmd_anpassen(args) -> int:
+    """Eigene Zeiten für einen Tag setzen oder zurücksetzen. Der Dienst plant den Tag dann neu."""
+    from . import wuensche
+
+    if args.datum is None:
+        w = wuensche.laden().get("anpassungen", {})
+        if not w:
+            print("Keine eigenen Zeiten eingetragen.")
+        for d, a in sorted(w.items()):
+            print(f"{d}: {wuensche.beschreibung(a)}")
+        return 0
+    try:
+        d = wuensche.datum_lesen(args.datum)
+        if args.zuruecksetzen:
+            wuensche.zuruecksetzen(d)
+            print(f"{d:%d.%m.}: wieder nach Stundenplan.")
+            return 0
+        if not (args.an or args.rueck or args.campus):
+            print("Bitte --an, --rueck oder --campus angeben (oder --zuruecksetzen).")
+            return 1
+        # bestehende Werte behalten, nur Angegebenes ändern
+        alt = wuensche.anpassung(wuensche.laden(), d) or {}
+        a = wuensche.anpassen(d, an=args.an or alt.get("an"), rueck_ab=args.rueck or alt.get("rueck_ab"),
+                              campus=args.campus or alt.get("campus"))
+    except ValueError as exc:
+        print(exc)
+        return 1
+    print(f"{d:%d.%m.}: {wuensche.beschreibung(a)}. Der Dienst plant den Tag im nächsten Takt neu "
+          f"(Vorschau: zugbot plan --datum {d.isoformat()}).")
     return 0
 
 
@@ -163,10 +205,18 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="befehl", required=True)
 
     p = sub.add_parser("plan", help="Hin- und Rückfahrt für ein Datum anzeigen (ohne Benachrichtigung)")
-    p.add_argument("--datum", default=date.today().isoformat(), help="JJJJ-MM-TT, Standard heute")
+    p.add_argument("--datum", default="heute", help="JJJJ-MM-TT, heute oder morgen (Standard heute)")
     p.add_argument("--tage", type=int, default=1, help="so viele Tage ab --datum")
     p.add_argument("--details", action="store_true", help="auch verworfene Verbindungen mit Grund zeigen")
     p.set_defaults(f=cmd_plan)
+
+    p = sub.add_parser("anpassen", help="eigene Zeiten für einen Tag (ohne Angaben: alle anzeigen)")
+    p.add_argument("--datum", help="JJJJ-MM-TT, heute oder morgen")
+    p.add_argument("--an", help="da sein um HH:MM (zählt wie Vorlesungsbeginn, 5 min Puffer)")
+    p.add_argument("--rueck", help="Rückfahrt frühestens ab HH:MM")
+    p.add_argument("--campus", choices=sorted(config.einstellungen()["campus"]))
+    p.add_argument("--zuruecksetzen", action="store_true", help="wieder nach Stundenplan")
+    p.set_defaults(f=cmd_anpassen)
 
     p = sub.add_parser("haltestellen", help="Haltestellen-IDs prüfen")
     p.add_argument("--eva", action="store_true", help="DB-EVA-Nummern für Gleise eintragen (braucht DB_API_KEY)")

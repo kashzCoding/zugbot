@@ -85,7 +85,8 @@ class Bahn:
 
     def verbindungen(self, von: str, nach: str, *, abfahrt: Optional[datetime] = None,
                      ankunft: Optional[datetime] = None, ueber: Optional[str] = None,
-                     anzahl: int = 5, nur_modi: Optional[list[str]] = None) -> list[dict]:
+                     anzahl: int = 5, nur_modi: Optional[list[str]] = None,
+                     fenster_s: int = 3600) -> list[dict]:
         """Sucht Verbindungen. Genau eins von abfahrt/ankunft angeben.
 
         Zeiten gehen als UTC raus (MOTIS rechnet intern in UTC), die Antwort
@@ -98,7 +99,8 @@ class Bahn:
             "time": zeit.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if zeit else None,
             "arriveBy": "true" if ankunft else "false",
             "numItineraries": anzahl,
-            "searchWindow": 3600,          # eine Stunde Suchfenster: Züge fahren teils im Stundentakt
+            # Suchfenster (Standard eine Stunde): Züge fahren teils im Stundentakt
+            "searchWindow": fenster_s,
             "transitModes": ",".join(nur_modi or self.modi),
             "detailedLegs": "false",
             "language": "de",

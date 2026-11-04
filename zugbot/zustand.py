@@ -54,3 +54,18 @@ def verbindung(z: dict, d: date, richtung: str) -> Optional[Verbindung]:
     if not p or not p.get(richtung):
         return None
     return Verbindung.aus_dict(p[richtung])
+
+
+def wahl_anwenden(p: dict, richtung: str, schluessel: str) -> bool:
+    """Macht die Option mit diesem Schlüssel zur überwachten Verbindung.
+
+    p["wahl"] merkt sich die zuletzt übernommene Wahl. Sonst würde der Dienst
+    nach einer Neuplanung unterwegs wieder auf die alte Option zurückspringen.
+    """
+    p.setdefault("wahl", {})[richtung] = schluessel
+    for o in p.get("optionen", {}).get(richtung, []):
+        if Verbindung.aus_dict(o).schluessel() == schluessel:
+            p[richtung] = o
+            p.get("geprueft", {}).pop(richtung, None)   # gleich frisch prüfen
+            return True
+    return False

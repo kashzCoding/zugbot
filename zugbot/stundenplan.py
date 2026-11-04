@@ -29,6 +29,10 @@ class Tag:
     termine: list[Termin] = field(default_factory=list)
     campus: Optional[str] = None
     warnungen: list[str] = field(default_factory=list)
+    # Eigene Zeiten für diesen Tag (wuensche.py), sonst None:
+    eigene: Optional[dict] = None              # wie gespeichert, z. B. {"an": "10:00"}
+    ziel_beginn: Optional[datetime] = None     # zählt wie Beginn des ersten Termins
+    rueck_ab: Optional[datetime] = None        # Rückfahrt frühestens ab
 
     @property
     def erster(self) -> Optional[Termin]:

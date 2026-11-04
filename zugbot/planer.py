@@ -9,6 +9,10 @@ Lichtwiese:  eine Suche Gelnhausen -> Lichtwiese, je über Frankfurt Hbf und Sü
 Stadtmitte:  zweistufig, weil der Umstieg in Darmstadt Hbf (mind. 7 min)
              zwischen zwei getrennt gesuchten Stücken liegt:
              Zug Gelnhausen <-> Darmstadt Hbf und Tram/Bus Darmstadt Hbf <-> Schloss/WBP.
+
+Neben der besten Verbindung bleiben bis zu OPTIONEN_HOECHSTENS weitere zur
+Auswahl (Dashboard). Dazu kommen alle direkten Trams/Busse Hbf <-> Campus im
+Zeitfenster, für die Anzeige von Takt und Alternativen (stadtfahrten, takt.py).
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ class Ergebnis:
     verbindung: Optional[Verbindung]
     kandidaten: int = 0
     verworfen: list[str] = field(default_factory=list)   # Gründe, für "zugbot plan --details"
+    optionen: list[Verbindung] = field(default_factory=list)   # beste zuerst, inkl. verbindung
 
 
 class Planer:
@@ -44,6 +49,8 @@ class Planer:
         self.e = einstellungen
         self.regeln = Regeln.aus_einstellungen(einstellungen)
         self.gleise = DbGleise(einstellungen)
+        self.opt = {"hoechstens": 6, "zeitfenster_minuten": 90, "laenger_hoechstens_minuten": 40,
+                    **einstellungen.get("optionen", {})}
 
     # ------------------------------------------------------------ Hilfen
     def hid(self, schluessel: str) -> str:
@@ -93,15 +100,28 @@ class Planer:
             else:
                 gueltig.append(v)
         gueltig.sort(key=punkte, reverse=True)
-        beste = gueltig[0] if gueltig else None
-        self.gleise.ergaenzen(beste)   # Zuggleise aus der DB-API, falls Schlüssel vorhanden
-        return Ergebnis(beste, len(gesehen), verworfen)
+        optionen = self._sinnvolle(_verschiedene_zuege(gueltig))
+        for v in optionen:
+            self.gleise.ergaenzen(v)   # Zuggleise aus der DB-API, falls Schlüssel vorhanden
+        return Ergebnis(optionen[0] if optionen else None, len(gesehen), verworfen, optionen)
+
+    def _sinnvolle(self, sortiert: list[Verbindung]) -> list[Verbindung]:
+        """Optionen zur Auswahl: zeitlich nah an der besten und nicht viel länger."""
+        if not sortiert:
+            return []
+        beste = sortiert[0]
+        fenster = timedelta(minutes=self.opt["zeitfenster_minuten"])
+        laenger = self.opt["laenger_hoechstens_minuten"]
+        return [v for v in sortiert
+                if v is beste or (abs(v.ab_plan - beste.ab_plan) <= fenster
+                                  and v.dauer_min <= beste.dauer_min + laenger)][:self.opt["hoechstens"]]
 
     # ------------------------------------------------------------ Hinweg
     def ziel_zeit(self, tag: Tag) -> datetime:
         h = self.e["hinweg"]
         puffer = h["ankunftspuffer_minuten"] + h["gehzeit_minuten"].get(tag.campus, 0)
-        return tag.erster.von - timedelta(minutes=puffer)
+        # eigene Ankunftszeit zählt wie ein Vorlesungsbeginn (gleicher Puffer)
+        return (tag.ziel_beginn or tag.erster.von) - timedelta(minutes=puffer)
 
     def hinweg(self, tag: Tag) -> Ergebnis:
         ziel = self.ziel_zeit(tag)
@@ -134,6 +154,8 @@ class Planer:
 
     # ------------------------------------------------------------ Rückweg
     def frueheste_rueckfahrt(self, tag: Tag) -> datetime:
+        if tag.rueck_ab:        # eigene Zeit: ab dann an der Haltestelle
+            return tag.rueck_ab
         return tag.letzter.bis + timedelta(minutes=self.e["rueckweg"]["frueheste_abfahrt_nach_ende_minuten"])
 
     def rueckweg(self, tag: Tag) -> Ergebnis:
@@ -183,6 +205,54 @@ class Planer:
             kandidaten += _kombiniere(stadt, [zug], "rueck", "stadtmitte", None, self.regeln)
         return kandidaten
 
+    # ------------------------------------------------------------ Letzte Meile
+    def stadtfahrten(self, richtung: str, campus: str, optionen: list[Verbindung],
+                     frueheste: Optional[datetime] = None) -> Optional[dict]:
+        """Alle direkten Trams/Busse zwischen Darmstadt Hbf und Campus im Zeitfenster
+        der Optionen. Daraus berechnet takt.py, was zu welcher Verbindung passt.
+
+        Eine Suche pro Campus-Halt (campus.<name>.takt_halte), Fenster passend
+        zu den Optionen, höchstens 3 Stunden.
+        """
+        umstieg = timedelta(minutes=self.regeln.umstieg_darmstadt_min)
+        zeiten = []
+        for v in optionen:
+            for a in v.fahrten:
+                if a.produkt in ("tram", "bus"):
+                    continue
+                if richtung == "hin" and bewertung.ist_darmstadt_hbf(a.nach, self.regeln):
+                    zeiten.append(a.an_plan + umstieg)
+                elif richtung == "rueck" and bewertung.ist_darmstadt_hbf(a.von, self.regeln):
+                    zeiten.append(a.ab_plan - umstieg)
+        if not zeiten:
+            return None
+        if richtung == "hin":
+            start, ende = min(zeiten), max(v.ziel_zeit or max(zeiten) for v in optionen)
+        else:
+            start, ende = frueheste or min(zeiten) - timedelta(minutes=30), max(zeiten)
+        fenster = int(min(3 * 3600, max(3600, (ende - start).total_seconds())))
+        da = self.hid("darmstadt_hbf")
+        c = self.e["campus"][campus]
+        halte = [self.hid(k) for k in c.get("takt_halte", c["halte"])]
+        gesehen, fahrten = set(), []
+        for halt in halte:
+            von, nach = (da, halt) if richtung == "hin" else (halt, da)
+            for t in self._suche(von, nach, abfahrt=start, anzahl=12,
+                                 nur_modi=NAHVERKEHR_STADT, fenster_s=fenster):
+                f = [a for a in t.abschnitte if not a.fussweg]
+                # nur ohne Umstieg, direkt ab/an Hbf und Campus-Halt
+                if len(f) != 1 or not self._direkt_am_halt(t, von, ende=False) \
+                        or not self._direkt_am_halt(t, nach, ende=True):
+                    continue
+                a = f[0]
+                if (a.linie, a.ab_plan) in gesehen:
+                    continue
+                gesehen.add((a.linie, a.ab_plan))
+                fahrten.append({"ab": a.ab_plan.isoformat(), "an": a.an_plan.isoformat(), "linie": a.linie,
+                                "von": a.von.name, "nach": a.nach.name, "steig": a.gleis_ab})
+        fahrten.sort(key=lambda x: x["ab"])
+        return {"ab": frueheste.isoformat() if frueheste else None, "fahrten": fahrten}
+
     # ------------------------------------------------------------ Neuplanung
     def neu_planen(self, v: Verbindung, jetzt: datetime) -> Optional[Verbindung]:
         """Sucht ab dem Punkt, an dem du laut Fahrplan gerade bist, eine neue Verbindung.
@@ -228,6 +298,22 @@ class Planer:
         if erg.verbindung:
             erg.verbindung.hinweis = f"neu geplant ab {halt.name}"
         return erg.verbindung
+
+
+def _verschiedene_zuege(sortiert: list[Verbindung]) -> list[Verbindung]:
+    """Pro Zugkombination nur die beste Verbindung behalten. Welche Tram/welcher
+    Bus dazu noch passt, zeigt die Takt-Anzeige; als eigene Option wäre das
+    nur fast dasselbe nochmal."""
+    gesehen, ergebnis = set(), []
+    for v in sortiert:
+        zuege = tuple(f"{a.linie}@{a.ab_plan:%H%M}" for a in v.fahrten if a.produkt not in ("tram", "bus"))
+        # gleiche Ab- und Ankunft (nur anderer Zwischenzug) zählt auch als dasselbe
+        zeiten = (v.ab_plan, v.an_plan)
+        if zuege in gesehen or zeiten in gesehen:
+            continue
+        gesehen.update((zuege, zeiten))
+        ergebnis.append(v)
+    return ergebnis
 
 
 def _erste_fahrt(t: Teil) -> Optional[Abschnitt]:

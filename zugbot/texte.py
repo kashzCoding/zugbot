@@ -48,20 +48,27 @@ def kurzfassung(v: Verbindung, regeln: Regeln) -> str:
     return "\n".join(zeilen)
 
 
-def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], regeln: Regeln) -> tuple[str, str]:
+def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], regeln: Regeln,
+              wann: str = "Morgen", takt: str = "") -> tuple[str, str]:
     wt = WOCHENTAGE_LANG[tag.datum.weekday()]
     if tag.frei:
-        return f"Morgen frei ({wt})", tag.grund.capitalize() if tag.grund else "Keine Termine."
-    titel = f"Morgen {wt}: {campus_name(tag.campus)}"
+        return f"{wann} frei ({wt})", tag.grund.capitalize() if tag.grund else "Keine Termine."
+    titel = f"{wann} {wt}: {campus_name(tag.campus)}"
     teile = []
     if hin:
         teile.append(kurzfassung(hin, regeln))
     else:
         teile.append("Keine passende Hinfahrt gefunden, bitte selbst schauen.")
+    if takt:
+        teile.append(takt)
     t = tag.erster
-    teile.append(f"Erster Termin {t.von:%H:%M} {t.titel}, {t.raum}")
+    if tag.ziel_beginn:
+        teile.append(f"Eigene Zeit: da sein um {tag.ziel_beginn:%H:%M}")
+    if t.titel != "Eigene Zeit":
+        teile.append(f"Erster Termin {t.von:%H:%M} {t.titel}, {t.raum}")
     if rueck:
-        teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, zu Hause {rueck.an:%H:%M}")
+        teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, zu Hause {rueck.an:%H:%M}"
+                     + (" (eigene Zeit)" if tag.rueck_ab else ""))
     teile += tag.warnungen
     return titel, "\n".join(teile)
 
@@ -92,4 +99,20 @@ def terminal(v: Optional[Verbindung], regeln: Regeln) -> str:
         if i < len(us):
             zeilen.append(f"         Umstieg {us[i].minuten} min (mind. {us[i].minimum})")
     zeilen.append(f"  Gesamt {dauer(v.dauer_min)}, {v.umstiege} Umstieg(e)")
+    return "\n".join(zeilen)
+
+
+def optionen_und_takt(erg, stadt: Optional[dict]) -> str:
+    """Terminal: weitere Optionen und passende Trams/Busse (für zugbot plan)."""
+    zeilen = []
+    weitere = [o for o in erg.optionen if o is not erg.verbindung]
+    if weitere:
+        zeilen.append("  Weitere Optionen:")
+        for o in sorted(weitere, key=lambda x: x.ab_plan):
+            zeilen.append(f"    {o.ab:%H:%M} → {o.an:%H:%M}  {' > '.join(a.linie for a in o.fahrten)}"
+                          f"  ({dauer(o.dauer_min)})")
+    if stadt:
+        zeiten = " ".join(f"{f['ab']}{'*' if f['deine'] else ''}" for f in stadt["fahrten"])
+        zeilen.append(f"  {stadt['titel']}: {stadt['text']}")
+        zeilen.append(f"    passend: {zeiten}   (* = in der Verbindung oben)")
     return "\n".join(zeilen)

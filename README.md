@@ -19,6 +19,7 @@ iPhone: ntfy-App + Browser (ohne Tailscale)
 │ bewertung.py Regeln + Punkte          │                     │
 │ ueberwachung.py Live-Stand, Meldungen │                     │
 │ web.py      Dashboard + /api/status   │                     │
+│ wuensche.py eigene Zeiten, gewählte Option                  │
 └───────────────────────────────────────┼─────────────────────┘
                                         ▼
          Transitous (Verbindungen, Echtzeit)   DB Timetables API (Gleise, optional)
@@ -39,8 +40,11 @@ ein Schlüssel in der `.env` steht.
 | `zugbot/planer.py` | Welche Anfragen gestellt und wie Stücke zusammengesetzt werden |
 | `zugbot/ueberwachung.py` | Was als relevante Änderung gilt |
 | `zugbot/gleise.py` | Gleise aus der DB-API |
+| `zugbot/takt.py` | Welche Trams/Busse Hbf ↔ Campus passen, und in welchem Takt |
+| `zugbot/wuensche.py` | Eigene Zeiten pro Tag, gewählte Option |
 | `zugbot/ics_import.py` | TUCaN-Import |
-| `daten/zustand.json` | aktueller Plan, gesendete Meldungen (zum Reinschauen) |
+| `daten/zustand.json` | aktueller Plan, Optionen, gesendete Meldungen (zum Reinschauen) |
+| `daten/wuensche.json` | deine eigenen Zeiten und gewählten Verbindungen |
 | `deploy/` | systemd-Unit, logrotate, Installations- und Deploy-Skript |
 
 ## Was wann passiert
@@ -55,6 +59,8 @@ ein Schlüssel in der `.env` steht.
 | Gleiswechsel, deutlich spätere Abfahrt | Push mit normaler Priorität |
 | kleine Verspätung ohne Folgen | nichts (steht nur im Dashboard) |
 | Bahndaten 3x nicht erreichbar | **eine** Meldung, eine weitere, wenn es wieder geht |
+| Eigene Zeiten geändert | Tag sofort neu planen; Push nur für heute oder wenn der Abendplan schon raus ist |
+| Andere Option gewählt | ab sofort diese überwachen (Morgen-Push, Meldungen, `/api/wecker`) |
 
 ## Regeln (Kurzfassung)
 
@@ -68,6 +74,29 @@ ein Schlüssel in der `.env` steht.
 - Stadtmitte: Zug und Tram/Bus werden getrennt gesucht und in Darmstadt Hbf zusammengesetzt.
   Tram/Bus muss direkt an Schloss bzw. Willy-Brandt-Platz ankommen/abfahren.
 - Rückweg: früheste Ankunft in Gelnhausen nach Ende des letzten Termins (+5 min).
+- Optionen: Neben der besten Verbindung bleiben bis zu 6 weitere zur Auswahl, höchstens
+  90 min früher/später und höchstens 40 min länger (`optionen` in den Einstellungen).
+  Pro Zugkombination nur eine; welche Tram/welcher Bus noch passt, zeigt die Takt-Anzeige.
+
+## Eigene Zeiten für einen Tag
+
+Wenn du z. B. morgen erst um 10:00 an der Lichtwiese sein willst: im Dashboard unten
+„Zeiten anpassen“ aufklappen, Tag wählen, Zeiten eintragen, Speichern. Oder im Terminal:
+
+```bash
+zugbot anpassen --datum morgen --an 10:00                 # da sein um 10:00
+zugbot anpassen --datum 2026-11-12 --rueck 16:00 --campus stadtmitte
+zugbot anpassen --datum morgen --zuruecksetzen           # wieder nach Stundenplan
+zugbot anpassen                                          # alle eigenen Zeiten anzeigen
+```
+
+- **Da sein um** zählt wie ein Vorlesungsbeginn: Mit den üblichen 5 min Puffer bist du
+  bei 10:00 um 9:55 am Halt.
+- **Zurück ab** ist die früheste Abfahrt am Campus-Halt (ohne Zuschlag).
+- **Campus** überschreibt den Campus aus dem Raum.
+- An einem freien Tag braucht es alle drei Angaben, dann plant der Bot trotzdem.
+- Geht für heute bis in 14 Tagen. Der Dienst übernimmt die Änderung innerhalb von Sekunden
+  (heute/morgen); spätere Tage plant er wie immer am Vortag.
 
 ## Einstellungen ändern
 
@@ -158,9 +187,21 @@ zugbot dashboard-url
 Die Adresse am iPhone in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Die Seite
 aktualisiert sich jede Minute selbst.
 
+**Wischen:** Gibt es mehrere passende Verbindungen, lassen sie sich wischen (oder mit den
+Pfeilen durchblättern). „Diese nehmen“ macht eine Option zur überwachten Fahrt. Andere
+Optionen zeigen den Fahrplanstand der letzten Planung, nur die überwachte hat Echtzeit.
+
+**Tram und Bus:** Unter jeder Verbindung über Darmstadt Hbf stehen die direkten Trams
+und Busse zwischen Hbf und Campus, die noch passen (Hinweg: nach Zugankunft + 7 min und
+rechtzeitig am Campus; Rückweg: rechtzeitig für den Zug), mit Takt, z. B.
+„Tram 2 etwa alle 5–10 min“. Deine eigene Fahrt ist hervorgehoben. Fährt der Zug direkt
+zur Lichtwiese (RB 82), entfällt die Anzeige. Dafür fragt der Bot pro Planung 2–4 Mal mehr
+bei Transitous an.
+
 **Schutz:** Die Seite liegt unter `/<DASHBOARD_SCHLUESSEL>/` (zufällig, aus der `.env`),
-alle anderen Pfade liefern 404. Wer die vollständige Adresse kennt, sieht deinen Fahrplan,
-also nicht weitergeben. Die Seite schickt keinen Referer an andere Seiten und ist für
+alle anderen Pfade liefern 404. Wer die vollständige Adresse kennt, sieht deinen Fahrplan
+und kann Optionen wählen und Zeiten ändern, also nicht weitergeben. Geschrieben werden nur
+JSON-Anfragen an `api/waehlen` und `api/anpassen`, mit geprüften Werten. Die Seite schickt keinen Referer an andere Seiten und ist für
 Suchmaschinen gesperrt. Das Dashboard selbst lauscht nur auf `127.0.0.1:8080`; von außen
 kommt man nur über Funnel hinein.
 

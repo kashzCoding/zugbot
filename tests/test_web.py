@@ -1,13 +1,16 @@
-"""Das Dashboard ist öffentlich (Tailscale Funnel) und nur durch den Schlüssel geschützt."""
+"""Das Dashboard ist öffentlich (Tailscale Funnel) und nur durch den Schlüssel geschützt,
+auch die beiden POST-Endpunkte zum Wählen und Anpassen."""
 
+import json
 import threading
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer
 
 import pytest
 
-from zugbot import web
+from zugbot import config, web, wuensche, zustand
 
 SCHLUESSEL = "testschluessel-abc123"
 
@@ -64,3 +67,57 @@ def test_keine_anderen_dateien(basis):
 def test_ohne_schraegstrich_weiterleitung(basis):
     code, kopf = status(f"{basis}/{SCHLUESSEL}")
     assert code == 301 and kopf["Location"] == f"/{SCHLUESSEL}/"
+
+
+# ------------------------------------------------------------ POST (Wünsche)
+def post(url, inhalt, typ="application/json"):
+    daten = inhalt if isinstance(inhalt, bytes) else json.dumps(inhalt).encode()
+    anfrage = urllib.request.Request(url, data=daten, method="POST", headers={"Content-Type": typ})
+    try:
+        with urllib.request.urlopen(anfrage) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {}
+
+
+@pytest.fixture
+def wunschdatei(tmp_path, monkeypatch):
+    monkeypatch.setattr(wuensche, "PFAD", tmp_path / "wuensche.json")
+    monkeypatch.setattr(zustand, "PFAD", tmp_path / "zustand.json")
+    heute = datetime.now(config.zeitzone()).date()
+    return heute + timedelta(days=1)
+
+
+@pytest.mark.parametrize("pfad", ["/api/anpassen", "/falsch/api/anpassen", f"/{SCHLUESSEL}/api/status",
+                                  f"/{SCHLUESSEL}/"])
+def test_post_nur_mit_schluessel_und_bekannter_route(basis, wunschdatei, pfad):
+    assert post(basis + pfad, {"datum": "morgen", "an": "10:00"})[0] == 404
+    assert not wuensche.PFAD.exists()
+
+
+def test_post_nur_json(basis, wunschdatei):
+    assert post(f"{basis}/{SCHLUESSEL}/api/anpassen", b"datum=morgen&an=10:00",
+                "application/x-www-form-urlencoded")[0] == 415
+    assert post(f"{basis}/{SCHLUESSEL}/api/anpassen", b"x" * 5000)[0] == 413
+    assert post(f"{basis}/{SCHLUESSEL}/api/anpassen", b"{kaputt")[0] == 400
+
+
+def test_anpassen_speichert(basis, wunschdatei):
+    code, j = post(f"{basis}/{SCHLUESSEL}/api/anpassen", {"datum": wunschdatei.isoformat(), "an": "10:00"})
+    assert code == 200 and j["ok"]
+    assert wuensche.anpassung(wuensche.laden(), wunschdatei)["an"] == "10:00"
+    code, j = post(f"{basis}/{SCHLUESSEL}/api/anpassen", {"datum": wunschdatei.isoformat(), "zuruecksetzen": True})
+    assert code == 200 and wuensche.anpassung(wuensche.laden(), wunschdatei) is None
+
+
+def test_anpassen_falsche_eingabe(basis, wunschdatei):
+    code, j = post(f"{basis}/{SCHLUESSEL}/api/anpassen", {"datum": "morgen", "an": "26:00"})
+    assert code == 400 and "Uhrzeit" in j["fehler"]
+
+
+def test_waehlen_unbekannt(basis, wunschdatei):
+    code, j = post(f"{basis}/{SCHLUESSEL}/api/waehlen", {"datum": "morgen", "richtung": "hin", "schluessel": "x"})
+    assert code == 400 and not wuensche.PFAD.exists()
