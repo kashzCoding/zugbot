@@ -134,6 +134,24 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_dashboard_url(args) -> int:
+    """Gibt die öffentliche Funnel-Adresse des Dashboards aus (mit Schlüssel)."""
+    import subprocess
+
+    schluessel = config.env().dashboard_schluessel
+    if not schluessel:
+        print("DASHBOARD_SCHLUESSEL fehlt in der .env (deploy/install.sh legt ihn an).")
+        return 1
+    try:
+        st = json.loads(subprocess.run(["tailscale", "status", "--json"], capture_output=True,
+                                       text=True, timeout=10).stdout)
+        host = st["Self"]["DNSName"].rstrip(".")
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        host = "<pi-name>.<tailnet>.ts.net"
+    print(f"https://{host}/{schluessel}/")
+    return 0
+
+
 def cmd_run(args) -> int:
     from . import dienst
     dienst.starten()
@@ -165,6 +183,8 @@ def main(argv=None) -> int:
     p.add_argument("--datum", default=date.today().isoformat())
     p.set_defaults(f=cmd_neu_planen)
     sub.add_parser("status", help="Zustand des Dienstes anzeigen").set_defaults(f=cmd_status)
+    sub.add_parser("dashboard-url", help="öffentliche Dashboard-Adresse anzeigen").set_defaults(
+        f=cmd_dashboard_url)
     sub.add_parser("run", help="Dienst starten (macht systemd)").set_defaults(f=cmd_run)
 
     args = ap.parse_args(argv)

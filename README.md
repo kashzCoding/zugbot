@@ -7,9 +7,9 @@ Läuft auf dem Raspberry Pi Zero W (`tradingbot.tailed8a6b.ts.net`).
 ## Aufbau
 
 ```
-iPhone: ntfy-App + Browser (über Tailscale)
+iPhone: ntfy-App + Browser (ohne Tailscale)
           ▲                     ▲
-       ntfy.sh          http://tradingbot.tailed8a6b.ts.net:8080
+       ntfy.sh          https://tradingbot.tailed8a6b.ts.net/<schlüssel>/  (Tailscale Funnel)
           │                     │
 ┌─────── Raspberry Pi (zugbot.service) ──────────────────────┐
 │ dienst.py   Takt alle 30 s: planen, überwachen, pushen      │
@@ -146,8 +146,35 @@ neuen Wert in `~/zugbot/.env` eintragen, `sudo systemctl restart zugbot`, in der
 
 ## Dashboard
 
-`http://tradingbot.tailed8a6b.ts.net:8080` (nur im Tailscale-Netz erreichbar, weil der
-Dienst nur auf der Tailscale-IP lauscht). Aktualisiert sich jede Minute selbst.
+Öffentlich per HTTPS über **Tailscale Funnel**, also auch auf dem Handy ohne Tailscale-App.
+Adresse anzeigen (auf dem Pi):
+
+```bash
+zugbot dashboard-url
+```
+
+Die Adresse am iPhone in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Die Seite
+aktualisiert sich jede Minute selbst.
+
+**Schutz:** Die Seite liegt unter `/<DASHBOARD_SCHLUESSEL>/` (zufällig, aus der `.env`),
+alle anderen Pfade liefern 404. Wer die vollständige Adresse kennt, sieht deinen Fahrplan,
+also nicht weitergeben. Die Seite schickt keinen Referer an andere Seiten und ist für
+Suchmaschinen gesperrt. Das Dashboard selbst lauscht nur auf `127.0.0.1:8080`; von außen
+kommt man nur über Funnel hinein.
+
+Neuen Schlüssel würfeln (alte Adresse wird ungültig):
+
+```bash
+sed -i '/^DASHBOARD_SCHLUESSEL=/d' ~/zugbot/.env && bash ~/zugbot/deploy/install.sh && zugbot dashboard-url
+```
+
+Funnel einrichten (einmalig, schon erledigt):
+
+```bash
+sudo tailscale funnel --bg 8080   # beim ersten Mal kommt ein Link zur Freigabe im Tailscale-Admin
+tailscale funnel status           # zeigt, was öffentlich ist
+sudo tailscale funnel --https=443 off   # Funnel wieder aus
+```
 
 ## Betrieb und Fehlersuche
 

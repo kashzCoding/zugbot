@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e9ecf1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Zug-Bot">
 <title>Zug-Bot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -190,7 +194,8 @@ function morgen(d) {
 
 async function laden() {
   try {
-    const r = await fetch("/api/status", {cache: "no-store"});
+    // relativ, weil die Seite unter /<schlüssel>/ liegt
+    const r = await fetch("api/status", {cache: "no-store"});
     const d = await r.json();
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
@@ -201,7 +206,7 @@ async function laden() {
     document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
     akzent(d); verbindung(d); morgen(d);
   } catch (e) {
-    document.getElementById("modus").textContent = "keine Verbindung zum Pi";
+    document.getElementById("modus").textContent = "Pi nicht erreichbar";
   }
 }
 laden();

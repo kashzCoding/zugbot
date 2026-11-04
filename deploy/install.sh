@@ -16,10 +16,16 @@ venv/bin/pip install --quiet --disable-pip-version-check -e .
 # 2) .env anlegen, falls es sie noch nicht gibt (mit zufälligem ntfy-Topic)
 if [ ! -f .env ]; then
   TOPIC="zugbot-$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
-  TSIP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
-  sed -e "s|^NTFY_TOPIC=.*|NTFY_TOPIC=$TOPIC|" -e "s|^WEB_HOST=.*|WEB_HOST=${TSIP:-127.0.0.1}|" .env.example > .env
+  sed -e "s|^NTFY_TOPIC=.*|NTFY_TOPIC=$TOPIC|" .env.example > .env
   chmod 600 .env
   echo ".env angelegt (ntfy-Topic: siehe 'grep NTFY_TOPIC ~/zugbot/.env')"
+fi
+# Dashboard-Schlüssel nachtragen, falls er fehlt (auch bei älteren .env)
+if ! grep -q '^DASHBOARD_SCHLUESSEL=.\+' .env; then
+  SCHLUESSEL="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+  sed -i '/^DASHBOARD_SCHLUESSEL=/d' .env
+  echo "DASHBOARD_SCHLUESSEL=$SCHLUESSEL" >> .env
+  echo "Dashboard-Schlüssel angelegt (siehe 'zugbot dashboard-url')"
 fi
 
 # 3) Befehl "zugbot" überall verfügbar machen

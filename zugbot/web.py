@@ -1,11 +1,16 @@
-"""Dashboard: kleine Webseite + /api/status (JSON), ausgeliefert vom Pi.
+"""Dashboard: kleine Webseite + api/status (JSON), ausgeliefert vom Pi.
 
 Bewusst nur mit der Python-Standardbibliothek (http.server), damit auf dem
 Pi Zero kein zusätzliches Framework RAM braucht. Nur lesend, keine Eingaben.
+
+Öffentlich erreichbar über Tailscale Funnel. Schutz: Die Seite antwortet nur
+unter /<DASHBOARD_SCHLUESSEL>/ (aus der .env), alles andere ist 404. Ohne
+Schlüssel in der .env (z. B. am Mac zum Testen) liegt sie unter /.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from datetime import datetime, timedelta
@@ -145,17 +150,43 @@ def dashboard_daten() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _senden(self, code: int, typ: str, daten: bytes) -> None:
+    schluessel = ""   # wird in serve() aus der .env gesetzt
+
+    def _senden(self, code: int, typ: str, daten: bytes, extra: Optional[dict] = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", typ)
         self.send_header("Cache-Control", "no-store")
+        # Schlüssel steht in der URL: nie als Referer an fremde Seiten schicken,
+        # nicht in Suchmaschinen, nicht in fremde Seiten einbetten
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Length", str(len(daten)))
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(daten)
 
-    def do_GET(self):
+    def _innerer_pfad(self) -> Optional[str]:
+        """Pfad hinter dem Schlüssel, oder None, wenn der Schlüssel nicht passt."""
         pfad = self.path.split("?")[0]
-        if pfad in ("/", "/index.html"):
+        if not self.schluessel:
+            return pfad
+        teile = pfad.split("/", 2)          # "", schluessel, rest
+        if len(teile) < 2 or not hmac.compare_digest(teile[1], self.schluessel):
+            return None
+        if len(teile) == 2:
+            return ""                        # /<schluessel> ohne Schrägstrich
+        return "/" + teile[2]
+
+    def do_GET(self):
+        pfad = self._innerer_pfad()
+        if pfad is None:
+            self._senden(404, "text/plain; charset=utf-8", "nicht gefunden".encode())
+        elif pfad == "":
+            # mit Schrägstrich, damit "api/status" relativ dazu aufgelöst wird
+            self._senden(301, "text/plain", b"", {"Location": f"/{self.schluessel}/"})
+        elif pfad in ("/", "/index.html"):
             self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes())
         elif pfad == "/api/status":
             try:
@@ -174,5 +205,9 @@ class Handler(BaseHTTPRequestHandler):
 def serve() -> None:
     env = config.env()
     port = config.einstellungen()["web"]["port"]
-    log.info("Dashboard auf http://%s:%s", env.web_host, port)
+    Handler.schluessel = env.dashboard_schluessel
+    if not env.dashboard_schluessel and env.web_host not in ("127.0.0.1", "localhost"):
+        log.warning("DASHBOARD_SCHLUESSEL fehlt, Dashboard ist ungeschützt erreichbar")
+    log.info("Dashboard auf http://%s:%s/%s", env.web_host, port,
+             "<schlüssel>/" if env.dashboard_schluessel else "")
     ThreadingHTTPServer((env.web_host, port), Handler).serve_forever()

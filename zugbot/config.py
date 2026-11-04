@@ -38,6 +38,7 @@ class Env:
     web_host: str
     db_client_id: str
     db_api_key: str
+    dashboard_schluessel: str
 
 
 def env() -> Env:
@@ -49,6 +50,7 @@ def env() -> Env:
         web_host=os.environ.get("WEB_HOST", "127.0.0.1"),
         db_client_id=os.environ.get("DB_CLIENT_ID", ""),
         db_api_key=os.environ.get("DB_API_KEY", ""),
+        dashboard_schluessel=os.environ.get("DASHBOARD_SCHLUESSEL", ""),
     )
 
 
