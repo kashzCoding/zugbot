@@ -490,7 +490,7 @@ async function anpassenSenden(zurueck) {
 function blaettern(key, schritt) {
   const [datum, richtung] = key.split(":");
   const t = daten.tage.find(x => x.datum === datum), f = t && t.fahrten.find(x => x.richtung === richtung);
-  if (!f || f.optionen.length < 2) return;
+  if (!f || !f.optionen || f.optionen.length < 2) return;
   const i = f.optionen.indexOf(gezeigt(f, datum)), j = i + schritt;
   if (j < 0 || j >= f.optionen.length) return;
   auswahl[key] = f.optionen[j].schluessel;
@@ -599,7 +599,16 @@ async function laden() {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
     const r = await fetch("api/status" + (offen.size ? "?offen=" + encodeURIComponent([...offen].join(",")) : ""),
                           {cache: "no-store"});
-    const d = await r.json();
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    var d = await r.json();
+  } catch (e) {
+    // nur hier ist der Pi wirklich nicht erreichbar (Netz, Funnel, Dienst aus)
+    document.getElementById("modus").textContent = "Pi nicht erreichbar";
+    schnell = 0;
+    planen(60000);
+    return;
+  }
+  try {
     daten = d;
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
@@ -609,12 +618,14 @@ async function laden() {
     st.textContent = d.stoerung;
     document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
     // ausgewählte Chips nach einer Übernahme wieder der überwachten Fahrt folgen lassen
-    d.tage.forEach(t => t.fahrten.forEach(f => { if (f.optionen.some(o => o.wird_gewaehlt)) delete auswahl[`${t.datum}:${f.richtung}`]; }));
+    d.tage.forEach(t => t.fahrten.forEach(f => { if ((f.optionen || []).some(o => o.wird_gewaehlt)) delete auswahl[`${t.datum}:${f.richtung}`]; }));
     akzent(d); tage(d); anpassen(d);
     const wartend = JSON.stringify(d.tage).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
     if (wartend && schnell > 0) { schnell--; planen(3000); return; }
   } catch (e) {
-    document.getElementById("modus").textContent = "Pi nicht erreichbar";
+    // Daten sind da, aber die Anzeige ist gescheitert: ehrlich sagen statt "nicht erreichbar"
+    console.error(e);
+    document.getElementById("modus").textContent = "Anzeigefehler, bitte neu laden";
   }
   schnell = 0;
   planen(60000);
