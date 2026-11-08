@@ -67,6 +67,11 @@ def ist_darmstadt_hbf(halt: Halt, regeln: Regeln) -> bool:
         or _norm(halt.name).startswith("darmstadthbf")
 
 
+def ist_pflicht_halt(halt: Halt, regeln: Regeln) -> bool:
+    """Frankfurt Hbf oder Süd (pflicht_ueber)."""
+    return halt.basis in regeln.pflicht_ueber_ids or _norm(halt.name) in regeln.pflicht_ueber_namen
+
+
 @dataclass
 class Umstieg:
     ort: str

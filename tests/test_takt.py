@@ -87,3 +87,20 @@ def test_eigene_fahrt_immer_sichtbar():
     i = takt.info(stadt, v, REGELN)
     assert len(i["fahrten"]) == takt.ANZEIGEN_HOECHSTENS
     assert i["fahrten"][-1] == {**i["fahrten"][-1], "ab": "07:46", "deine": True}
+
+
+def test_anderer_erster_zug_dann_weiter_wie_geplant():
+    """Dein Fall: verspäteter RE kommt vor der geplanten RB in Frankfurt an."""
+    from zugbot.planer import mit_anschluss
+    gel = Halt(config.einstellungen()["haltestellen"]["gelnhausen"]["id"], "Gelnhausen Bahnhof")
+    jetzt = t(6, 0)
+    rb = Abschnitt(gel, FFM, t(6, 37), t(7, 17), linie="RB 51", produkt="regional")
+    weiter = Abschnitt(FFM, CAMPUS, t(7, 26), t(7, 50), linie="RB 82", produkt="regional")
+    plan = Verbindung([Teil([rb, weiter])], "hin", "lichtwiese", ziel_zeit=t(7, 55))
+    re_ok = Verbindung([Teil([Abschnitt(gel, FFM, t(6, 20), t(7, 0), ab_ist=t(6, 32), an_ist=t(7, 12),
+                                        linie="RE 50", produkt="regionalExpress")])], "hin", "lichtwiese")
+    re_zu_spaet = Verbindung([Teil([Abschnitt(gel, FFM, t(6, 25), t(7, 5), ab_ist=t(6, 45), an_ist=t(7, 25),
+                                              linie="RE 55", produkt="regionalExpress")])], "hin", "lichtwiese")
+    erg = mit_anschluss([re_ok, re_zu_spaet, plan], plan, REGELN, jetzt)
+    assert [v.schluessel() for v in erg] == ["RE 50@0620|RB 82@0726"]
+    assert "weiter wie geplant" in erg[0].hinweis

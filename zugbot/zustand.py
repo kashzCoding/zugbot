@@ -63,9 +63,14 @@ def wahl_anwenden(p: dict, richtung: str, schluessel: str) -> bool:
     nach einer Neuplanung unterwegs wieder auf die alte Option zurückspringen.
     """
     p.setdefault("wahl", {})[richtung] = schluessel
-    for o in p.get("optionen", {}).get(richtung, []):
+    for o in alle_optionen(p, richtung):
         if Verbindung.aus_dict(o).schluessel() == schluessel:
             p[richtung] = o
             p.get("geprueft", {}).pop(richtung, None)   # gleich frisch prüfen
             return True
     return False
+
+
+def alle_optionen(p: dict, richtung: str) -> list[dict]:
+    """Geplante Optionen plus live entstandene Kombinationen (dienst._optionen_live)."""
+    return (p.get("optionen") or {}).get(richtung, []) + (p.get("zusatz") or {}).get(richtung, [])

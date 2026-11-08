@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs
 
 from . import bewertung, config, stundenplan, takt, texte, wuensche, zustand
 from .bewertung import Regeln
@@ -33,6 +34,7 @@ BILDER = {
     "logo.svg": "image/svg+xml",
     "apple-touch-icon.png": "image/png",   # Symbol für "Zum Home-Bildschirm"
     "favicon-32.png": "image/png",
+    "figtree.woff2": "font/woff2",         # Schrift selbst ausliefern statt von Google
 }
 MAX_ANFRAGE_BYTES = 4096
 TAGE_ANPASSEN = 8     # so viele Tage ab heute zeigt "Zeiten anpassen"
@@ -45,14 +47,29 @@ def _gleis_label(a, an: bool = False) -> str:
     return f"{'Steig' if a.ist_steig else 'Gleis'} {g}" if g else ""
 
 
-def _status(a) -> tuple[str, str]:
+def _status(a, jetzt: datetime) -> tuple[str, str]:
     if a.ausfall:
         return "fällt aus", "ausfall"
     if a.ab_ist is None:
-        return "Fahrplan", "plan"
+        # weit weg: noch kein Live-Stand zu erwarten; kurz vorher: wirklich keiner da
+        return ("Fahrplan" if a.ab_plan - jetzt > timedelta(minutes=90) else "keine Echtzeit"), "plan"
     if a.verspaetung_ab > 0:
         return f"+{a.verspaetung_ab} min", "spaet"
     return "pünktlich", "ok"
+
+
+def _lage(v: Verbindung, us) -> tuple[str, str]:
+    """Kurzstatus für den Zeit-Chip: das Wichtigste zuerst."""
+    if any(a.ausfall for a in v.fahrten):
+        return "fällt aus", "warn"
+    if any(not u.reicht for u in us):
+        return "Anschluss weg", "warn"
+    plus = v.fahrten[0].verspaetung_ab
+    if plus > 0:
+        return f"+{plus} min", "spaet"
+    if v.fahrten[0].ab_ist is not None:
+        return "pünktlich", "ok"
+    return "", ""
 
 
 def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
@@ -75,7 +92,7 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
 
     abschnitte = []
     for a in fahrten:
-        status, art = _status(a)
+        status, art = _status(a, jetzt)
         abschnitte.append({
             "linie": a.linie, "richtung": a.richtung, "steig": a.ist_steig,
             "status": status, "status_art": art, "fahrzeit": f"{a.fahrzeit_min} min",
@@ -99,7 +116,9 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
     halte.append({"ort": texte.kurzname(letzte.nach.name), "an": f"{letzte.an:%H:%M}",
                   "an_spaet": letzte.verspaetung_an > 0, "ab": "", "ab_alt": "", "ab_spaet": False,
                   "gleis": _gleis_label(letzte, an=True), "umstieg": "", "umstieg_warn": False, "ziel": True})
+    lage, lage_art = _lage(v, us)
     return {
+        "lage": lage, "lage_art": lage_art,
         "richtung": ("Hinfahrt, " if v.richtung == "hin" else "Rückfahrt, ") + texte.campus_name(v.campus),
         "los": los_text,
         "ab": f"{v.ab:%H:%M}", "an": f"{v.an:%H:%M}",
@@ -125,13 +144,14 @@ def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetim
     """Alle Optionen einer Richtung, nach Abfahrt sortiert (Zeit-Chips).
 
     Die überwachte Verbindung kommt mit Echtzeit aus p[richtung]; die anderen
-    sind Fahrplanstand der letzten Planung. Abgefahrene fallen weg.
+    sind Fahrplanstand der letzten Planung bzw. mit DB-Echtzeit aufgefrischt
+    (dienst._optionen_live). Abgefahrene fallen weg.
     """
     if not p or not p.get(richtung):
         return []
     gewaehlt = Verbindung.aus_dict(p[richtung])
     g_key = gewaehlt.schluessel()
-    liste = [Verbindung.aus_dict(o) for o in (p.get("optionen") or {}).get(richtung, [])]
+    liste = [Verbindung.aus_dict(o) for o in zustand.alle_optionen(p, richtung)]
     empfohlen = liste[0].schluessel() if liste else g_key
     if g_key not in {o.schluessel() for o in liste}:
         liste.append(gewaehlt)            # z. B. unterwegs neu geplant
@@ -140,7 +160,7 @@ def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetim
     offen = wunsch if wunsch and wunsch != (p.get("wahl") or {}).get(richtung) else None
     stadt = (p.get("stadt") or {}).get(richtung)
     ergebnis = []
-    for o in sorted(liste, key=lambda x: x.ab_plan):
+    for o in sorted(liste, key=lambda x: (x.ab, x.an)):
         k = o.schluessel()
         if k != g_key and o.ab <= jetzt:
             continue
@@ -152,8 +172,26 @@ def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetim
     return ergebnis
 
 
-def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: datetime, w: dict) -> dict:
-    """Ein Tag (Reiter Heute/Morgen): Termine, eigene Zeiten, Hin- und Rückfahrt."""
+def _hauptfahrt(p: dict, jetzt: datetime) -> str:
+    """Die Fahrt, die aufgeklappt geladen wird: Hinfahrt, bis du angekommen bist."""
+    hin = Verbindung.aus_dict(p["hin"]) if p.get("hin") else None
+    return "rueck" if hin and hin.an < jetzt else "hin"
+
+
+def _tafel(p: dict, richtung: str, jetzt: datetime) -> Optional[dict]:
+    t = (p.get("tafel") or {}).get(richtung)
+    if not t or jetzt - datetime.fromisoformat(t["stand"]) > timedelta(minutes=15):
+        return None      # zu alt, lieber nichts zeigen
+    return {**t, "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M")}
+
+
+def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: datetime, w: dict,
+              offen: frozenset = frozenset()) -> dict:
+    """Ein Tag (Reiter Heute/Morgen): Termine, eigene Zeiten, Hin- und Rückfahrt.
+
+    Nur die Hauptfahrt (bzw. was du aufgeklappt hast, `offen`) kommt mit allen
+    Optionen und Zeitstrahl; die andere nur als eine Zeile. Das hält api/status
+    klein und schnell."""
     daten = {"name": name, "datum": d.isoformat(),
              "titel": f"{stundenplan.WOCHENTAGE_LANG[d.weekday()]}, {d.day}. {MONATE[d.month - 1]}"}
     if not p:
@@ -176,12 +214,20 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
             minutes=e["benachrichtigung"]["morgen_push_minuten_vor_abfahrt"])
         if push > jetzt:
             daten["push"] = f"Push um {push:%H:%M}"
+    haupt = _hauptfahrt(p, jetzt)
     for r, titel in (("hin", "Hinfahrt"), ("rueck", "Rückfahrt")):
+        fehlt = "" if p.get(r) else (p.get("fehler") or f"Keine passende {titel} gefunden.")
+        if r != haupt and f"{d.isoformat()}:{r}" not in offen and p.get(r):
+            v = Verbindung.aus_dict(p[r])
+            lage, lage_art = _lage(v, bewertung.umstiege(v, regeln))
+            daten["fahrten"].append({"richtung": r, "titel": titel, "zu": True, "fehlt": "",
+                                     "kurz": {"ab": f"{v.ab:%H:%M}", "an": f"{v.an:%H:%M}",
+                                              "lage": lage, "lage_art": lage_art}})
+            continue
         opt = optionen(p, d, r, regeln, jetzt, w)
-        daten["fahrten"].append({
-            "richtung": r, "titel": titel, "optionen": opt,
-            "fehlt": "" if opt else (p.get("fehler") or f"Keine passende {titel} gefunden."),
-        })
+        daten["fahrten"].append({"richtung": r, "titel": titel, "optionen": opt, "zu": False,
+                                 "aufklappbar": r != haupt, "tafel": _tafel(p, r, jetzt),
+                                 "fehlt": fehlt if not opt else ""})
     return daten
 
 
@@ -258,7 +304,7 @@ def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
     }
 
 
-def dashboard_daten() -> dict:
+def dashboard_daten(offen: frozenset = frozenset()) -> dict:
     e = config.einstellungen()
     regeln = Regeln.aus_einstellungen(e)
     tz = config.zeitzone()
@@ -288,13 +334,15 @@ def dashboard_daten() -> dict:
         naechste = zustand.verbindung(z, morgen, "hin")
         kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab Gelnhausen" if naechste else ""}
 
-    tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w),
-            tag_daten(p_morgen, morgen, "Morgen", regeln, e, jetzt, w)]
+    tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w, offen),
+            tag_daten(p_morgen, morgen, "Morgen", regeln, e, jetzt, w, offen)]
+    selbsttest = (status.get("selbsttest") or {}).get("fehler") or []
     return {
         "datum": f"{stundenplan.WOCHENTAGE_LANG[heute.weekday()]}, {heute.day}. {MONATE[heute.month - 1]}",
         "modus": f"live, alle {ue['intervall_nah_minuten']} min" if modus == "nah"
                  else f"alle {ue['intervall_normal_minuten']} min",
-        "stoerung": status.get("fehler", ""),
+        "stoerung": "; ".join(selbsttest) or
+                    ("Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." if status.get("fehler") else ""),
         "aktualisiert": datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else "",
         "kopf": kopf,
         "tage": tage,
@@ -312,7 +360,7 @@ def waehlen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     p = zustand.plan(zustand.laden(), d)
     if richtung not in ("hin", "rueck") or not isinstance(schluessel, str) or not p:
         raise ValueError("Diese Verbindung kenne ich nicht.")
-    for o in (p.get("optionen") or {}).get(richtung, []) + ([p[richtung]] if p.get(richtung) else []):
+    for o in zustand.alle_optionen(p, richtung) + ([p[richtung]] if p.get(richtung) else []):
         v = Verbindung.aus_dict(o)
         if v.schluessel() == schluessel:
             if v.ab <= jetzt:
@@ -336,16 +384,36 @@ def anpassen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     return {"ok": True, "text": f"Gespeichert ({wuensche.beschreibung(a)}), wird neu geplant.{hinweis}"}
 
 
-POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen}
+def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
+    """"Ich nehme diesen Zug" von der Abfahrtstafel."""
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
+    richtung, pt = daten.get("richtung"), str(daten.get("pt", ""))
+    p = zustand.plan(zustand.laden(), d)
+    tafel = ((p or {}).get("tafel") or {}).get(richtung) if richtung in ("hin", "rueck") else None
+    zug = next((z for z in (tafel or {}).get("zuege", [])
+                if z["pt"] == pt and z["linie"] == daten.get("linie")), None)
+    if zug is None:
+        raise ValueError("Diesen Zug kenne ich nicht (mehr), bitte neu laden.")
+    if zug["ausfall"]:
+        raise ValueError("Dieser Zug fällt aus.")
+    ab_plan = datetime.strptime(pt, "%y%m%d%H%M").replace(tzinfo=config.zeitzone())
+    wuensche.zug_nehmen(d, richtung, {"halt_id": tafel["halt_id"], "linie": zug["linie"],
+                                      "ab_plan": ab_plan.isoformat()})
+    return {"ok": True, "text": f"{zug['linie']} {zug['ist']}: Ich plane den Rest der Fahrt, gleich kommt ein Push."}
+
+
+POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen, "/api/zug": zug_nehmen}
 
 
 class Handler(BaseHTTPRequestHandler):
     schluessel = ""   # wird in serve() aus der .env gesetzt
 
-    def _senden(self, code: int, typ: str, daten: bytes, extra: Optional[dict] = None) -> None:
+    def _senden(self, code: int, typ: str, daten: bytes, extra: Optional[dict] = None,
+                cache: str = "no-store") -> None:
         self.send_response(code)
         self.send_header("Content-Type", typ)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         # Schlüssel steht in der URL: nie als Referer an fremde Seiten schicken,
         # nicht in Suchmaschinen, nicht in fremde Seiten einbetten
         self.send_header("Referrer-Policy", "no-referrer")
@@ -377,7 +445,9 @@ class Handler(BaseHTTPRequestHandler):
             # mit Schrägstrich, damit "api/status" relativ dazu aufgelöst wird
             self._senden(301, "text/plain", b"", {"Location": f"/{self.schluessel}/"})
         elif pfad in ("/", "/index.html"):
-            self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes())
+            # 10 min im Browser behalten: Öffnen geht schneller, ein Deploy wirkt spätestens dann
+            self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes(),
+                         cache="private, max-age=600")
         elif pfad == "/api/wecker":
             try:
                 daten = json.dumps(wecker_daten(), ensure_ascii=False).encode()
@@ -387,10 +457,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._senden(500, "application/json", b'{"fehler": "intern"}')
         elif pfad.lstrip("/") in BILDER:
             name = pfad.lstrip("/")
-            self._senden(200, BILDER[name], (STATIC / name).read_bytes())
+            self._senden(200, BILDER[name], (STATIC / name).read_bytes(), cache="private, max-age=604800")
         elif pfad == "/api/status":
             try:
-                daten = json.dumps(dashboard_daten(), ensure_ascii=False).encode()
+                # ?offen=2026-11-09:rueck,... : diese Fahrten zusätzlich ausführlich
+                anfrage = parse_qs(self.path.partition("?")[2])
+                offen = frozenset(x for x in ",".join(anfrage.get("offen", [])).split(",") if x)
+                daten = json.dumps(dashboard_daten(offen), ensure_ascii=False).encode()
                 self._senden(200, "application/json; charset=utf-8", daten)
             except Exception:
                 log.exception("Dashboard-Daten fehlgeschlagen")

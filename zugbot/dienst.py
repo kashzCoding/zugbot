@@ -8,16 +8,24 @@ Eine Schleife alle 30 Sekunden prüft, ob etwas fällig ist:
   - 60 min vor Abfahrt in Gelnhausen         -> Morgen-Push
   - relevante Änderung                       -> sofort pushen, ggf. neu planen
   - eigene Zeiten / gewählte Option (wuensche.py) -> übernehmen, ggf. neu planen
+  - "Ich nehme diesen Zug" (wuensche.py)     -> Rest der Fahrt ab diesem Zug planen
+  - bei jeder Prüfung einer Fahrt              -> alle Optionen mit DB-Echtzeit auffrischen,
+                                                Abfahrtstafel am nächsten Bahnhof
+  - alle 30 min                              -> Selbsttest: DNS, Transitous, DB, ntfy
 """
 
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
-from . import config, ntfy, stundenplan, takt, texte, ueberwachung, wuensche, zustand
+import requests
+
+from . import bewertung, config, ntfy, stundenplan, takt, texte, ueberwachung, wuensche, zustand
+from . import planer as planer_mod
 from .bahn import Bahn, BahnFehler
 from .bewertung import Regeln
 from .modell import Verbindung
@@ -26,6 +34,8 @@ from .planer import Planer
 log = logging.getLogger(__name__)
 
 TAKT_SEKUNDEN = 30
+SELBSTTEST_MINUTEN = 30
+TAFEL_AB_MINUTEN = 90     # Abfahrtstafel ab so lange vor deinem nächsten Zug
 FRUEHESTE_UEBERWACHUNG_STUNDEN = 6   # vorher lohnt Echtzeit nicht (nachts nichts abfragen)
 
 
@@ -118,6 +128,7 @@ class Dienst:
                     self._angepasst(z, w, d, jetzt)
                 else:
                     self._wahl_uebernehmen(z, w, d)
+                    self._zug_uebernehmen(z, w, d, jetzt)
 
             self._abendplan(z, jetzt, morgen)
             for richtung in ("hin", "rueck"):
@@ -137,6 +148,7 @@ class Dienst:
                             "Transitous antwortet nicht. Ich versuche es weiter und melde mich, "
                             "sobald es wieder geht.", "hoch")
                 status["ausfall_gemeldet"] = True
+        self._selbsttest(status, jetzt)
         status["modus"] = self._modus(z, jetzt)
         status["takt_um"] = jetzt.isoformat()
         zustand.speichern(z)
@@ -170,6 +182,100 @@ class Dienst:
                 if zustand.wahl_anwenden(p, r, gewaehlt):
                     log.info("Gewählt für %s %s: %s", d, r, gewaehlt)
                     z["gemeldet"].pop(f"{d.isoformat()}:{r}", None)
+
+    def _zug_uebernehmen(self, z: dict, w: dict, d: date, jetzt: datetime) -> None:
+        """"Ich nehme diesen Zug": Rest der Fahrt ab diesem Zug planen und überwachen."""
+        p = z["plaene"][d.isoformat()]
+        for r in ("hin", "rueck"):
+            zug = wuensche.zug(w, d, r)
+            if not zug or zug == (p.get("zug") or {}).get(r) or not p.get(r):
+                continue
+            p.setdefault("zug", {})[r] = zug
+            ab = datetime.fromisoformat(zug["ab_plan"])
+            neu = self.planer.ab_zug(Verbindung.aus_dict(p[r]), zug["halt_id"], zug["linie"], ab, jetzt)
+            if neu is None:
+                ntfy.senden("Keine Verbindung gefunden",
+                            f"Mit {zug['linie']} {ab:%H:%M} finde ich keine Weiterfahrt. "
+                            "Der bisherige Plan bleibt.", "hoch")
+                continue
+            log.info("Zug genommen %s %s: %s", d, r, neu.schluessel())
+            p[r] = neu.als_dict()
+            p.setdefault("wahl", {})[r] = neu.schluessel()
+            p.get("geprueft", {}).pop(r, None)
+            z["gemeldet"].pop(f"{d.isoformat()}:{r}", None)
+            klappt = r == "rueck" or not neu.ziel_zeit or neu.an <= neu.ziel_zeit
+            ntfy.senden("Neuer Plan" if klappt else "Neuer Plan, aber zu spät",
+                        texte.kurzfassung(neu, self.regeln), "normal" if klappt else "hoch")
+
+    def _optionen_live(self, p: dict, richtung: str, gewaehlt: Verbindung, jetzt: datetime) -> None:
+        """Alle Optionen mit DB-Echtzeit auffrischen und Kombinationen "anderer Zug,
+        dann weiter wie geplant" ergänzen. Keine Anfragen an Transitous; die
+        DB-Tafeln sind zwischengespeichert."""
+        optionen = []
+        for o in (p.get("optionen") or {}).get(richtung, []):
+            v = Verbindung.aus_dict(o)
+            self.planer.gleise.ergaenzen(v)
+            optionen.append(v)
+        p.setdefault("optionen", {})[richtung] = [v.als_dict() for v in optionen]
+        bekannt = {v.schluessel() for v in optionen} | {gewaehlt.schluessel()}
+        zusatz = [v for v in planer_mod.mit_anschluss(optionen, gewaehlt, self.regeln, jetzt)
+                  if v.schluessel() not in bekannt]
+        p.setdefault("zusatz", {})[richtung] = [v.als_dict() for v in zusatz]
+        p.setdefault("tafel", {})[richtung] = self._tafel(gewaehlt, jetzt)
+
+    def _tafel(self, v: Verbindung, jetzt: datetime) -> Optional[dict]:
+        """Abfahrtstafel am Bahnhof deines nächsten Zuges, nur Züge in deine Richtung."""
+        zuege = [a for a in v.fahrten if a.produkt not in ("tram", "bus")]
+        naechster = next((a for a in zuege if a.ab > jetzt - timedelta(minutes=1)), None)
+        if naechster is None or jetzt < naechster.ab_plan - timedelta(minutes=TAFEL_AB_MINUTEN):
+            return None
+        eva = self.planer.gleise.eva.get(naechster.von.basis)
+        if not eva or not self.planer.gleise.aktiv:
+            return None
+        i = zuege.index(naechster)
+        rest = zuege[i:]
+        # Am Umstiegsbahnhof erst ab deiner Ankunft dort (mit Umstiegszeit) zählen
+        frueh = jetzt - timedelta(minutes=2)
+        if i > 0:
+            minimum = self.regeln.umstieg_darmstadt_min if bewertung.ist_darmstadt_hbf(naechster.von, self.regeln) \
+                else self.regeln.umstieg_min
+            frueh = max(frueh, zuege[i - 1].an + timedelta(minutes=minimum))
+        ziele = [a.nach.name for a in rest]
+        # Frankfurt Hbf und Süd sind gleichwertig (Pflicht: über einen der beiden)
+        pflicht = [self.e["haltestellen"][k]["name"] for k in self.e["pflicht_ueber"]]
+        if any(bewertung.ist_pflicht_halt(a.nach, self.regeln) for a in rest):
+            ziele += pflicht
+        zuege_tafel = self.planer.gleise.tafel(eva, frueh, max(naechster.ab, frueh) + timedelta(minutes=40), ziele)
+        for zt in zuege_tafel:
+            zt["deiner"] = zt["pt"] == f"{naechster.ab_plan:%y%m%d%H%M}" and \
+                planer_mod._nummer(zt["linie"]) == planer_mod._nummer(naechster.linie)
+        return {"bahnhof": texte.kurzname(naechster.von.name), "halt_id": naechster.von.id,
+                "stand": jetzt.isoformat(), "zuege": zuege_tafel[:8]}
+
+    def _selbsttest(self, status: dict, jetzt: datetime) -> None:
+        """Prüft alle 30 min, ob DNS und die Dienste erreichbar sind. Das Ergebnis
+        zeigt das Dashboard; es läuft über Funnel und geht auch ohne DNS auf dem Pi."""
+        letzter = status.get("selbsttest", {}).get("um")
+        if letzter and jetzt - datetime.fromisoformat(letzter) < timedelta(minutes=SELBSTTEST_MINUTEN):
+            return
+        env = config.env()
+        ziele = {"Transitous": env.transitous_url, "ntfy": env.ntfy_server}
+        if self.planer.gleise.aktiv:
+            ziele["DB-API"] = "https://apis.deutschebahn.com"
+        fehler = []
+        for name, url in ziele.items():
+            host = url.split("//", 1)[-1].split("/", 1)[0]
+            try:
+                socket.getaddrinfo(host, 443)
+                requests.head(url, timeout=10, headers={"User-Agent": env.user_agent})
+            except socket.gaierror:
+                fehler.append(f"{name}: Name nicht auflösbar (DNS)")
+            except requests.RequestException as exc:
+                fehler.append(f"{name}: nicht erreichbar ({type(exc).__name__})")
+        if fehler and not status.get("selbsttest", {}).get("fehler"):
+            log.warning("Selbsttest: %s", "; ".join(fehler))
+            ntfy.senden("Zug-Bot: Verbindungsproblem", "\n".join(fehler), "hoch")   # klappt, falls ntfy geht
+        status["selbsttest"] = {"um": jetzt.isoformat(), "fehler": fehler}
 
     def _plantext(self, p: dict, d: date, w: Optional[dict] = None) -> tuple[str, str]:
         t = wuensche.tag(d, w)
@@ -245,6 +351,7 @@ class Dienst:
 
         z["gemeldet"][mkey] = ueberwachung.zustand_schluessel(v_neu, self.regeln, jetzt)
         p[richtung] = v_neu.als_dict()
+        self._optionen_live(p, richtung, v_neu, jetzt)
         p["geprueft"][richtung] = jetzt.isoformat()
 
         if push_faellig:

@@ -1,9 +1,14 @@
-"""Gleise (und Gleiswechsel) für Züge aus der offiziellen DB-Timetables-API.
+"""Gleise, Verspätungen und Ausfälle für Züge aus der offiziellen DB-Timetables-API.
 
 Transitous kennt bei Bus und Tram den Steig, bei Zügen fehlt das Gleis oft.
 Die DB-Timetables-API (developers.deutschebahn.com, kostenloser Schlüssel)
 liefert für jeden Bahnhof die Abfahrtstafel mit geplantem Gleis (pp) und
-Änderungen (cp = geändertes Gleis, cs="c" = Ausfall).
+Änderungen (cp = geändertes Gleis, ct = geänderte Zeit, cs="c" = Ausfall).
+
+Echtzeit für Züge kommt von hier, nicht von Transitous: Ein Vergleich am
+5.11.2026 an unseren 4 Bahnhöfen ergab bei Transitous für 41 von 110 Zügen
+gar keine Echtzeit und 5 zu kleine Verspätungen; die DB hatte alle. Ein
+Tafeleintrag ohne ct heißt bei der DB: pünktlich.
 
 Zuordnung eines Zugs zu einem Tafeleintrag: gleicher Bahnhof (EVA-Nummer aus
 einstellungen.yaml), gleiche Planzeit (Minute genau) und, falls angegeben,
@@ -18,24 +23,29 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import quote
 
 import requests
 
 from . import config
-from .modell import Abschnitt, Verbindung, basis_id
+from .modell import TZ, Abschnitt, Verbindung, basis_id
 
 log = logging.getLogger(__name__)
 
 BASIS = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
 ZUG_PRODUKTE = {"regional", "regionalExpress", "suburban"}
+# Fernverkehr gehört nicht auf die Tafel (Deutschlandticket)
+FERNVERKEHR = {"ICE", "IC", "EC", "ECE", "EN", "NJ", "RJ", "RJX", "TGV", "FLX", "D"}
 PLAN_CACHE_S = 6 * 3600      # Fahrplan einer Stunde ändert sich kaum
 AENDERUNG_CACHE_S = 90       # Änderungen (Gleiswechsel) frisch halten
 # Die DB-Tafel reicht nur ca. 18 h voraus, weiter weg kommt 404. Eine leere
 # Antwort deshalb nur kurz merken, sonst fehlen die Gleise unnötig lange.
 LEER_CACHE_S = 30 * 60
+# Ohne ct gilt ein Zug als pünktlich, aber erst kurz vor der Fahrt: Für den Zug
+# morgen früh heißt "keine Änderung bekannt" noch nicht "pünktlich".
+PUENKTLICH_AB = timedelta(minutes=90)
 
 
 class DbGleise:
@@ -130,8 +140,50 @@ class DbGleise:
             return e
         return None
 
+    def tafel(self, eva: str, von: datetime, bis: datetime, ziele: list[str]) -> list[dict]:
+        """Abfahrten an einem Bahnhof, nur Nahverkehr, der über einen der Ziel-
+        bahnhöfe fährt (Namen wie bei Transitous). Mit Echtzeit."""
+        from .bewertung import _norm
+
+        ziel_n = [_norm(z) for z in ziele]
+
+        def faehrt_hin(halt: str) -> bool:
+            h = _norm(halt)
+            return any(h.startswith(z) or z.startswith(h) for z in ziel_n if h and z)
+
+        zeilen, gesehen = [], set()
+        stunde = von.replace(minute=0, second=0, microsecond=0)
+        while stunde <= bis:
+            for s in self._eintraege(eva, stunde).values():
+                dp, tl = s.find("dp"), s.find("tl")
+                if dp is None or not dp.get("pt"):
+                    continue
+                kat = tl.get("c", "") if tl is not None else ""
+                if kat in FERNVERKEHR:
+                    continue
+                plan = _db_zeit(dp.get("pt"))
+                ist = _db_zeit(dp.get("ct")) or plan
+                if ist < von or plan > bis:
+                    continue
+                pfad = (dp.get("cpth") or dp.get("ppth") or "").split("|")
+                ueber = next((h for h in pfad if faehrt_hin(h)), None)
+                if ueber is None:
+                    continue
+                linie = _linie(kat, dp.get("l") or "")
+                if (dp.get("pt"), linie) in gesehen:
+                    continue
+                gesehen.add((dp.get("pt"), linie))
+                zeilen.append({
+                    "pt": dp.get("pt"), "plan": f"{plan:%H:%M}", "ist": f"{ist:%H:%M}",
+                    "plus": round((ist - plan).total_seconds() / 60), "ausfall": dp.get("cs") == "c",
+                    "linie": linie, "ziel": pfad[-1] if pfad else "", "ueber": ueber,
+                    "gleis": dp.get("cp") or dp.get("pp") or "",
+                })
+            stunde += timedelta(hours=1)
+        return sorted(zeilen, key=lambda z: (z["ist"], z["plan"]))
+
     def ergaenzen(self, v: Optional[Verbindung]) -> None:
-        """Trägt Gleise in alle Zug-Abschnitte ein (verändert v direkt)."""
+        """Trägt Gleise und Echtzeit in alle Zug-Abschnitte ein (verändert v direkt)."""
         if not self.aktiv or v is None:
             return
         for a in v.fahrten:
@@ -146,11 +198,39 @@ class DbGleise:
             if dp is not None:
                 a.gleis_ab_plan = dp.get("pp") or a.gleis_ab_plan
                 a.gleis_ab = dp.get("cp") or dp.get("pp") or a.gleis_ab
-                if dp.get("cs") == "c":
-                    a.ausfall = True
+                a.ab_ist = _db_zeit(dp.get("ct")) or (a.ab_plan if _nah(a.ab_plan) else a.ab_ist)
+                a.ausfall = dp.get("cs") == "c"
+                a.quelle = "DB"
         eva_an = self.eva.get(a.nach.basis)
         if eva_an:
             ar = self._finde(eva_an, a.an_plan, "ar", a.linie)
             if ar is not None:
                 a.gleis_an_plan = ar.get("pp") or a.gleis_an_plan
                 a.gleis_an = ar.get("cp") or ar.get("pp") or a.gleis_an
+                a.an_ist = _db_zeit(ar.get("ct")) or (a.an_plan if _nah(a.ab_plan) else a.an_ist)
+                a.ausfall = a.ausfall or ar.get("cs") == "c"
+                a.quelle = "DB"
+
+
+def _db_zeit(wert: Optional[str]) -> Optional[datetime]:
+    """DB-Zeitformat yyMMddHHmm, Ortszeit."""
+    if not wert:
+        return None
+    return datetime.strptime(wert, "%y%m%d%H%M").replace(tzinfo=TZ)
+
+
+def _nah(ab_plan: datetime) -> bool:
+    return ab_plan - datetime.now(TZ) <= PUENKTLICH_AB
+
+
+def _linie(kat: str, l: str) -> str:
+    """Wie Transitous schreiben: "RB 82", "RE 50", "S6". Die DB nennt teils den
+    Betreiber als Kategorie (VIA, HLB), l ist dann nur die Nummer."""
+    m = re.match(r"^([A-Z]+)\s*(\d+)$", l.strip())
+    if m:
+        kat, nummer = m.group(1), m.group(2)
+    else:
+        nummer = re.sub(r"\D", "", l)
+        if kat not in ("RE", "RB", "S", "IRE"):
+            kat = "RB"     # Betreiberkürzel -> Regionalbahn
+    return f"S{nummer}" if kat == "S" else f"{kat} {nummer}".strip()

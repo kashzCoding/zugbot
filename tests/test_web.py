@@ -121,3 +121,28 @@ def test_anpassen_falsche_eingabe(basis, wunschdatei):
 def test_waehlen_unbekannt(basis, wunschdatei):
     code, j = post(f"{basis}/{SCHLUESSEL}/api/waehlen", {"datum": "morgen", "richtung": "hin", "schluessel": "x"})
     assert code == 400 and not wuensche.PFAD.exists()
+
+
+def test_schrift_nur_mit_schluessel(basis):
+    assert status(f"{basis}/{SCHLUESSEL}/figtree.woff2")[0] == 200
+    assert status(f"{basis}/figtree.woff2")[0] == 404
+
+
+def test_zug_unbekannt(basis, wunschdatei):
+    code, j = post(f"{basis}/{SCHLUESSEL}/api/zug", {"datum": "heute", "richtung": "hin", "pt": "2611090620",
+                                                     "linie": "RE 50"})
+    assert code == 400 and not wuensche.PFAD.exists()
+
+
+def test_nebenfahrt_zugeklappt_bis_offen(wunschdatei):
+    """Morgens nur die Hinfahrt ausführlich, die Rückfahrt erst auf Wunsch."""
+    from tests.test_wecker import plan_mit_fahrt
+    morgen = wunschdatei
+    p = plan_mit_fahrt()
+    p["rueck"] = p["hin"]
+    zustand.speichern({"plaene": {morgen.isoformat(): p}})
+    fahrten = web.dashboard_daten()["tage"][1]["fahrten"]
+    zu = [f for f in fahrten if f["zu"]]
+    assert len(zu) == 1 and "optionen" not in zu[0] and zu[0]["kurz"]["ab"]   # genau eine eingeklappt
+    offen = frozenset({f"{morgen.isoformat()}:{zu[0]['richtung']}"})
+    assert all(not f["zu"] and f["optionen"] for f in web.dashboard_daten(offen)["tage"][1]["fahrten"])

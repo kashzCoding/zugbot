@@ -18,6 +18,7 @@ Zeitfenster, für die Anzeige von Takt und Alternativen (stadtfahrten, takt.py).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -253,6 +254,35 @@ class Planer:
         fahrten.sort(key=lambda x: x["ab"])
         return {"ab": frueheste.isoformat() if frueheste else None, "fahrten": fahrten}
 
+    # ------------------------------------------------------------ Bestimmter Zug
+    def ab_zug(self, v: Verbindung, halt_id: str, linie: str, ab_plan: datetime,
+               jetzt: datetime) -> Optional[Verbindung]:
+        """Du nimmst einen bestimmten Zug (von der Abfahrtstafel): den Rest der
+        Fahrt ab diesem Zug planen. Bereits gefahrene Abschnitte bleiben vorne."""
+        nummer = _nummer(linie)
+        fahrten = v.fahrten
+        idx = next((i for i, a in enumerate(fahrten) if a.von.basis == basis_id(halt_id)), len(fahrten))
+        vorne = fahrten[:idx]
+        ziele = self.campus_halte(v.campus) if v.richtung == "hin" else [self.hid("gelnhausen")]
+        kandidaten = []
+        for z in ziele:
+            for t in self._suche(halt_id, z, abfahrt=ab_plan - timedelta(minutes=1), anzahl=5):
+                erste = _erste_fahrt(t)
+                if erste is None or erste.ab_plan != ab_plan or _nummer(erste.linie) != nummer:
+                    continue
+                teile = ([Teil(vorne)] if vorne else []) + [t]
+                kandidaten.append(Verbindung(teile, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+        for k in kandidaten:
+            self.gleise.ergaenzen(k)
+        gut = [k for k in kandidaten if not bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)]
+        if not gut:      # Anschluss nach Live-Stand weg: ab dort neu planen
+            gut = [r for r in (self.neu_planen(k, jetzt) for k in kandidaten) if r]
+        if not gut:
+            return None
+        beste = max(gut, key=lambda x: bewertung.punkte_rettung(x, self.regeln, v.ziel_zeit))
+        beste.hinweis = f"Du nimmst {linie} {ab_plan:%H:%M}"
+        return beste
+
     # ------------------------------------------------------------ Neuplanung
     def neu_planen(self, v: Verbindung, jetzt: datetime) -> Optional[Verbindung]:
         """Sucht ab dem Punkt, an dem du laut Fahrplan gerade bist, eine neue Verbindung.
@@ -300,6 +330,36 @@ class Planer:
         return erg.verbindung
 
 
+def mit_anschluss(kandidaten: list[Verbindung], plan: Verbindung, regeln: Regeln,
+                  jetzt: datetime) -> list[Verbindung]:
+    """Anderer erster Zug, dann weiter wie geplant.
+
+    Beispiel: Geplant ist RB 51 06:37 bis Frankfurt Hbf, dann RB 82. Der RE 50
+    06:20 ist 12 min verspätet, kommt aber vor der RB 51 in Frankfurt an. Dann
+    ist "RE 50 bis Frankfurt Hbf, dann RB 82" eine eigene Option. Gerechnet
+    wird nur mit vorhandenen Daten (Live-Zeiten aus der DB), ohne neue Suche.
+    """
+    from .texte import kurzname
+
+    pf = plan.fahrten
+    ergebnis = []
+    for v in kandidaten:
+        a = v.fahrten[0] if v.fahrten else None
+        if a is None or a.ausfall or a.ab <= jetzt or a.produkt in ("tram", "bus"):
+            continue
+        if a.linie == pf[0].linie and a.ab_plan == pf[0].ab_plan:
+            continue      # derselbe erste Zug wie im Plan
+        for i in range(1, len(pf)):
+            if pf[i].von.basis != a.nach.basis:
+                continue
+            neu = Verbindung([Teil([a]), Teil(pf[i:])], plan.richtung, plan.campus, plan.ziel_zeit,
+                             hinweis=f"{a.linie} bis {kurzname(a.nach.name)}, dann weiter wie geplant")
+            if not bewertung.pruefe(neu, regeln) and (not neu.ziel_zeit or neu.an <= neu.ziel_zeit):
+                ergebnis.append(neu)
+            break
+    return ergebnis
+
+
 def _verschiedene_zuege(sortiert: list[Verbindung]) -> list[Verbindung]:
     """Pro Zugkombination nur die beste Verbindung behalten. Welche Tram/welcher
     Bus dazu noch passt, zeigt die Takt-Anzeige; als eigene Option wäre das
@@ -314,6 +374,12 @@ def _verschiedene_zuege(sortiert: list[Verbindung]) -> list[Verbindung]:
         gesehen.update((zuege, zeiten))
         ergebnis.append(v)
     return ergebnis
+
+
+def _nummer(linie: str) -> str:
+    """'RE 50' -> '50', 'S6' -> '6' (wie gleise.DbGleise._liniennummer)."""
+    m = re.search(r"(\d+)\s*$", linie)
+    return m.group(1) if m else ""
 
 
 def _erste_fahrt(t: Teil) -> Optional[Abschnitt]:

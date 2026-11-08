@@ -99,6 +99,7 @@ class Abschnitt:
     trip_id: Optional[str] = None
     # Halte unterwegs (Namen), für die Babenhausen/Groß-Umstadt-Prüfung
     zwischenhalte: list[Halt] = field(default_factory=list)
+    quelle: str = ""          # woher die Echtzeit stammt: "DB" oder "" (Transitous/keine)
 
     @property
     def ab(self) -> datetime:

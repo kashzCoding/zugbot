@@ -11,7 +11,17 @@ if [ ! -x venv/bin/python ]; then
   echo "Lege venv an ..."
   python3 -m venv --system-site-packages venv
 fi
-venv/bin/pip install --quiet --disable-pip-version-check -e .
+# pip nur, wenn sich pyproject.toml geändert hat (neue Abhängigkeiten). Das
+# editable install zeigt schon auf den Code, für reine Code-Änderungen reicht
+# ein Neustart. Schlägt pip fehl (z. B. kein Internet), trotzdem weitermachen.
+STAND="$(sha256sum pyproject.toml | cut -d' ' -f1)"
+if [ "$(cat venv/.pyproject-stand 2>/dev/null)" != "$STAND" ]; then
+  if venv/bin/pip install --quiet --disable-pip-version-check -e .; then
+    echo "$STAND" > venv/.pyproject-stand
+  else
+    echo "WARNUNG: pip fehlgeschlagen, der Code ist trotzdem aktuell. Neue Abhängigkeiten fehlen evtl."
+  fi
+fi
 
 # 2) .env anlegen, falls es sie noch nicht gibt (mit zufälligem ntfy-Topic)
 if [ ! -f .env ]; then

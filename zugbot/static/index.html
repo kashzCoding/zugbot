@@ -12,12 +12,12 @@
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Zug-Bot</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preload" href="figtree.woff2" as="font" type="font/woff2" crossorigin>
 <style>
   /* Design "C Fokus". Kontraste geprüft (WCAG AA, Text mind. 4,5:1):
      Orange #ffb547 nur auf Blau (4,67:1) und als Fläche/Linie; auf Weiß #9a5800 (5,57:1). */
+  /* Figtree (SIL Open Font License, siehe OFL-Figtree.txt), vom Pi ausgeliefert */
+  @font-face { font-family: "Figtree"; src: url("figtree.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
   :root {
     --bg: #e9ecf1;
     --karte: #ffffff;
@@ -107,6 +107,28 @@
   .zchip { border: 0; background: var(--chip); border-radius: 12px; padding: 6px 11px 5px; cursor: pointer; text-align: left; min-width: 64px; position: relative; }
   .zchip b { display: block; font-size: 16px; font-weight: 800; }
   .zchip span { display: block; font-size: 11px; color: var(--grau); font-weight: 600; }
+  .zchip span.warn, .zchip span.spaet { color: var(--orange-text); }
+  .zchip span.ok { color: var(--gruen); }
+  .zchip[aria-pressed="true"] span.warn, .zchip[aria-pressed="true"] span.spaet { color: var(--orange); }
+  .zchip[aria-pressed="true"] span.ok { color: var(--akzent-hell); }
+  .zu { width: 100%; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .zu .titel-zu { display: block; font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+  .zu .zeit-kurz { font-size: 17px; font-weight: 800; }
+  .zu .mehr { color: var(--akzent); font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .lage { font-size: 13px; font-weight: 600; }
+  .lage.warn, .lage.spaet { color: var(--orange-text); }
+  .lage.ok { color: var(--gruen); }
+  .tafel { margin-top: 16px; border-top: 1px solid var(--linie); padding-top: 12px; }
+  .tafel h3 { font-size: 14px; margin: 0 0 8px; }
+  .tafel-zeile { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--linie); font-size: 14px; }
+  .tafel-zeile:last-child { border-bottom: 0; }
+  .tafel-zeile .t { font-weight: 800; }
+  .tafel-zeile .t s { display: block; font-size: 11px; font-weight: 500; color: var(--grau); }
+  .tafel-zeile .t.spaet { color: var(--orange-text); }
+  .tafel-zeile .wohin { min-width: 0; }
+  .tafel-zeile .wohin b { font-weight: 700; }
+  .tafel-zeile .wohin span { display: block; font-size: 12px; color: var(--grau); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .knopf.klein { padding: 7px 12px; font-size: 13px; }
   .zchip[aria-pressed="true"] { background: var(--akzent); color: #fff; }
   .zchip[aria-pressed="true"] span { color: var(--akzent-hell); }
   .zchip.ueberwacht::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--punkt); }
@@ -243,6 +265,8 @@ const ICON = {
 };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let daten = null, tagIndex = null, schnell = 0, timer = null;
+let offen = new Set();   // aufgeklappte Nebenfahrten "datum:richtung", werden mitgeladen
+try { offen = new Set(JSON.parse(sessionStorage.getItem("zugbot-offen") || "[]")); } catch (e) {}
 const auswahl = {};      // "datum:richtung" -> Schlüssel der angezeigten Option
 
 function setzen(el, html) {      // nur neu zeichnen, wenn sich etwas geändert hat
@@ -307,24 +331,46 @@ function gezeigt(f, datum) {
   return o;
 }
 
+function zugeklappt(f, datum) {
+  const k = f.kurz;
+  return `<section class="karte"><button type="button" class="zu" data-auf="${esc(datum)}:${esc(f.richtung)}" aria-expanded="false">
+    <span><span class="titel-zu">${esc(f.titel)}</span><span class="zeit-kurz">${esc(k.ab)} → ${esc(k.an)}</span>
+      ${k.lage ? ` <span class="lage ${esc(k.lage_art)}">${esc(k.lage)}</span>` : ""}</span>
+    <span class="mehr">Details</span></button></section>`;
+}
+
+function tafelHtml(t, datum, richtung) {
+  if (!t || !t.zuege.length) return "";
+  return `<div class="tafel"><h3>Abfahrten ${esc(t.bahnhof)} <span class="klein">· Stand ${esc(t.stand)}</span></h3>
+    ${t.zuege.map(z => `<div class="tafel-zeile">
+      <span class="t ${z.plus > 0 || z.ausfall ? "spaet" : ""}">${esc(z.ist)}${z.plus ? `<s>${esc(z.plan)}</s>` : ""}</span>
+      <span class="wohin"><b>${esc(z.linie)}</b>${z.gleis ? ` · Gl. ${esc(z.gleis)}` : ""}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span></span>
+      ${z.ausfall ? `<span class="lage warn">fällt aus</span>` : z.deiner ? `<span class="chip ueberwacht">dein Zug</span>` :
+        `<button type="button" class="knopf zweit klein" data-zug="${esc(z.pt)}" data-linie="${esc(z.linie)}"
+          data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Nehme ich</button>`}
+    </div>`).join("")}</div>`;
+}
+
 function fahrtKarte(f, datum) {
+  if (f.zu) return zugeklappt(f, datum);
   if (!f.optionen.length) return `<section class="karte"><h2>${esc(f.titel)}</h2><div class="stoerung" style="margin-top:10px">${esc(f.fehlt)}</div></section>`;
   const o = gezeigt(f, datum), key = `${datum}:${f.richtung}`;
   const chips = f.optionen.length > 1 ? `<div class="chips" role="group" aria-label="Optionen">${f.optionen.map(x =>
     `<button type="button" class="zchip ${x.gewaehlt || x.wird_gewaehlt ? "ueberwacht" : ""}" aria-pressed="${x === o}"
       data-zeigen="${esc(x.schluessel)}" data-key="${esc(key)}" aria-label="${esc(x.ab)} bis ${esc(x.an)}${x.gewaehlt ? ", überwacht" : ""}">
-      <b>${esc(x.ab)}</b><span>an ${esc(x.an)}</span></button>`).join("")}</div>` : "";
+      <b>${esc(x.ab)}</b><span class="${esc(x.lage_art)}">${esc(x.lage && x.lage !== "pünktlich" ? x.lage : "an " + x.an)}</span></button>`).join("")}</div>` : "";
   const marken = [o.gewaehlt ? `<span class="chip ueberwacht">Wird überwacht</span>` : "",
                   o.wird_gewaehlt ? `<span class="chip ueberwacht">Wird übernommen …</span>` : "",
                   o.empfohlen ? `<span class="chip empfohlen">Empfohlen</span>` : "",
-                  o.fahrplan ? `<span class="chip">Fahrplan</span>` : "",
+                  o.lage && o.lage_art !== "ok" ? `<span class="chip warn">${esc(o.lage)}</span>` : "",
                   o.hinweis ? `<span class="chip warn">${esc(o.hinweis)}</span>` : ""].join("");
   const mini = o.segmente.map((s, i) => `<span class="${s.verspaetet ? "spaet" : o.abschnitte[i].steig ? "tram" : ""}" style="flex:${s.anteil}"></span>`).join("");
   const wahl = o.gewaehlt || o.wird_gewaehlt || o.vorbei ? "" :
     `<div class="wahl"><button class="knopf primaer" type="button" data-waehlen="${esc(o.schluessel)}" data-datum="${esc(datum)}"
       data-richtung="${esc(f.richtung)}">Diese nehmen</button></div>`;
-  return `<section class="karte"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>
-      ${f.optionen.length > 1 ? `<span class="klein">${f.optionen.length} Optionen</span>` : ""}</div>
+  const zuKnopf = f.aufklappbar ? `<button type="button" class="link" data-zu="${esc(key)}">Einklappen</button>` :
+    (f.optionen.length > 1 ? `<span class="klein">${f.optionen.length} Optionen</span>` : "");
+  return `<section class="karte"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>${zuKnopf}</div>
     ${chips}
     <div class="auswahl" data-key="${esc(key)}">
       <div class="gross-zeit">${esc(o.ab)}<span class="pfeil">→</span>${esc(o.an)}</div>
@@ -333,7 +379,7 @@ function fahrtKarte(f, datum) {
       <div class="mini-balken" aria-hidden="true">${mini}</div>
       ${strahl(o)}
       ${wahl}
-    </div></section>`;
+    </div>${tafelHtml(f.tafel, datum, f.richtung)}</section>`;
 }
 
 function tagHtml(t, i) {
@@ -476,6 +522,28 @@ document.addEventListener("click", async ev => {
   }
   const p = ev.target.closest("[data-plus]");
   if (p) { document.getElementById("a-an").value = p.dataset.plus; return; }
+  const auf = ev.target.closest("[data-auf]"), zu = ev.target.closest("[data-zu]");
+  if (auf || zu) {
+    if (auf) { offen.add(auf.dataset.auf); auf.querySelector(".mehr").textContent = "lädt …"; }
+    else offen.delete(zu.dataset.zu);
+    try { sessionStorage.setItem("zugbot-offen", JSON.stringify([...offen])); } catch (e) {}
+    planen(0);
+    return;
+  }
+  const zg = ev.target.closest("[data-zug]");
+  if (zg) {
+    zg.disabled = true; zg.textContent = "Plane …";
+    try {
+      const j = await senden("api/zug", {datum: zg.dataset.datum, richtung: zg.dataset.richtung,
+                                         pt: zg.dataset.zug, linie: zg.dataset.linie});
+      meldungBei(zg, j.text, "ok");
+      beschleunigen();
+    } catch (e) {
+      zg.disabled = false; zg.textContent = "Nehme ich";
+      meldungBei(zg, e.message);
+    }
+    return;
+  }
   const w = ev.target.closest("[data-waehlen]");
   if (w) {
     w.disabled = true; w.textContent = "Wird übernommen …";
@@ -488,9 +556,10 @@ document.addEventListener("click", async ev => {
     }
   }
 });
-function meldungBei(el, text) {
+function meldungBei(el, text, art) {
   const m = document.createElement("span");
-  m.className = "klein"; m.style.color = "var(--orange-text)"; m.textContent = text;
+  m.className = "klein"; m.style.color = art === "ok" ? "var(--gruen)" : "var(--orange-text)"; m.textContent = text;
+  m.style.gridColumn = "1 / -1";      // in der Tafel über die ganze Zeile
   el.after(m);
 }
 
@@ -528,7 +597,8 @@ function planen(ms) { clearTimeout(timer); timer = setTimeout(laden, ms); }
 async function laden() {
   try {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
-    const r = await fetch("api/status", {cache: "no-store"});
+    const r = await fetch("api/status" + (offen.size ? "?offen=" + encodeURIComponent([...offen].join(",")) : ""),
+                          {cache: "no-store"});
     const d = await r.json();
     daten = d;
     document.getElementById("datum").textContent = d.datum;
@@ -536,13 +606,13 @@ async function laden() {
     document.getElementById("live").classList.toggle("nah", d.modus.startsWith("live"));
     const st = document.getElementById("stoerung");
     st.hidden = !d.stoerung;
-    st.textContent = d.stoerung ? "Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." : "";
+    st.textContent = d.stoerung;
     document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
     // ausgewählte Chips nach einer Übernahme wieder der überwachten Fahrt folgen lassen
     d.tage.forEach(t => t.fahrten.forEach(f => { if (f.optionen.some(o => o.wird_gewaehlt)) delete auswahl[`${t.datum}:${f.richtung}`]; }));
     akzent(d); tage(d); anpassen(d);
-    const offen = JSON.stringify(d.tage).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
-    if (offen && schnell > 0) { schnell--; planen(3000); return; }
+    const wartend = JSON.stringify(d.tage).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
+    if (wartend && schnell > 0) { schnell--; planen(3000); return; }
   } catch (e) {
     document.getElementById("modus").textContent = "Pi nicht erreichbar";
   }

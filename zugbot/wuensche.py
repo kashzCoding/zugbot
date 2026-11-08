@@ -2,6 +2,7 @@
 
 - eigene Zeiten: Ankunft (zählt wie Vorlesungsbeginn), Rückfahrt frühestens ab, Campus
 - gewählte Verbindung: welche der Optionen der Dienst überwachen soll
+- genommener Zug: "Ich nehme diesen Zug" auf der Abfahrtstafel
 
 Eigene Datei statt zustand.json: Dashboard und "zugbot anpassen" schreiben hier,
 der Dienst liest nur. So überschreibt der Dienst beim Speichern keinen Wunsch,
@@ -54,7 +55,7 @@ def _aendern(funktion) -> None:
             w = {}
         funktion(w)
         heute = _heute().isoformat()
-        for bereich in ("anpassungen", "wahl"):       # Vergangenes aufräumen
+        for bereich in ("anpassungen", "wahl", "zug"):       # Vergangenes aufräumen
             for k in list(w.get(bereich, {})):
                 if k[:10] < heute:
                     del w[bereich][k]
@@ -133,6 +134,18 @@ def waehlen(d: date, richtung: str, schluessel: str) -> None:
     _aendern(lambda w: w.setdefault("wahl", {}).__setitem__(f"{d.isoformat()}:{richtung}", schluessel))
 
 
+def zug_nehmen(d: date, richtung: str, zug: dict) -> None:
+    """zug = {"halt_id", "linie", "ab_plan" (ISO)}; ersetzt eine gewählte Option."""
+    if richtung not in ("hin", "rueck"):
+        raise ValueError("Richtung muss hin oder rueck sein.")
+
+    def f(w):
+        w.setdefault("zug", {})[f"{d.isoformat()}:{richtung}"] = zug
+        w.get("wahl", {}).pop(f"{d.isoformat()}:{richtung}", None)
+
+    _aendern(f)
+
+
 # ------------------------------------------------------------ Lesen
 def anpassung(w: dict, d: date) -> Optional[dict]:
     return w.get("anpassungen", {}).get(d.isoformat())
@@ -140,6 +153,10 @@ def anpassung(w: dict, d: date) -> Optional[dict]:
 
 def wahl(w: dict, d: date, richtung: str) -> Optional[str]:
     return w.get("wahl", {}).get(f"{d.isoformat()}:{richtung}")
+
+
+def zug(w: dict, d: date, richtung: str) -> Optional[dict]:
+    return w.get("zug", {}).get(f"{d.isoformat()}:{richtung}")
 
 
 def beschreibung(a: Optional[dict]) -> str:

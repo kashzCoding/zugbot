@@ -22,14 +22,19 @@ iPhone: ntfy-App + Browser (ohne Tailscale)
 │ wuensche.py eigene Zeiten, gewählte Option                  │
 └───────────────────────────────────────┼─────────────────────┘
                                         ▼
-         Transitous (Verbindungen, Echtzeit)   DB Timetables API (Gleise, optional)
+         Transitous (Verbindungen, Tram/Bus)   DB Timetables API (Zug-Echtzeit, Gleise)
 ```
 
 **Warum Transitous und nicht db-rest?** db-rest lief zwar auf dem Pi, aber die DB blockt
 alle Anfragen von db-vendo-client (`OPS_BLOCKED`), und dessen Doku verlangt eine Erlaubnis
-der DB. Transitous ist ein offener Dienst auf Basis der DELFI-Fahrplandaten mit Echtzeit.
-Bei Zügen fehlt dort oft das Gleis; das ergänzt die offizielle DB-Timetables-API, sobald
-ein Schlüssel in der `.env` steht.
+der DB. Transitous ist ein offener Dienst auf Basis der DELFI-Fahrplandaten; damit sucht
+der Bot Verbindungen, und für Tram/Bus kommt von dort auch die Echtzeit.
+
+**Echtzeit für Züge kommt von der DB** (Timetables-API, sobald ein Schlüssel in der `.env`
+steht): Verspätung, Ausfall, Gleis. Ein Vergleich am 5.11.2026 an unseren 4 Bahnhöfen
+ergab bei Transitous für 41 von 110 Zügen gar keine Echtzeit und 5 zu kleine
+Verspätungen; die DB hatte alle. Ohne Änderung bei der DB gilt ein Zug ab 90 min vor
+Abfahrt als pünktlich, vorher steht „Fahrplan“.
 
 | Datei | Aufgabe |
 |---|---|
@@ -61,6 +66,9 @@ ein Schlüssel in der `.env` steht.
 | Bahndaten 3x nicht erreichbar | **eine** Meldung, eine weitere, wenn es wieder geht |
 | Eigene Zeiten geändert | Tag sofort neu planen; Push nur für heute oder wenn der Abendplan schon raus ist |
 | Andere Option gewählt | ab sofort diese überwachen (Morgen-Push, Meldungen, `/api/wecker`) |
+| „Nehme ich“ auf der Abfahrtstafel | Rest der Fahrt ab diesem Zug planen, ab dann überwachen, Push mit neuem Plan |
+| bei jeder Prüfung einer Fahrt | alle Optionen mit DB-Echtzeit auffrischen, Abfahrtstafel ab 90 min vorher |
+| alle 30 min | Selbsttest: DNS, Transitous, DB, ntfy erreichbar? Fehler stehen oben im Dashboard |
 
 ## Regeln (Kurzfassung)
 
@@ -166,7 +174,7 @@ zugbot plan --datum 2026-11-09 --tage 5            # auf dem Pi
 Der Topic-Name ist das einzige Geheimnis: Wer ihn kennt, kann mitlesen. Neu würfeln:
 neuen Wert in `~/zugbot/.env` eintragen, `sudo systemctl restart zugbot`, in der App neu abonnieren.
 
-## Gleise über die DB-API (optional)
+## Echtzeit und Gleise über die DB-API
 
 1. Auf https://developers.deutschebahn.com registrieren, eine Anwendung anlegen und die API
    „Timetables“ abonnieren (kostenloser Plan).
@@ -193,10 +201,24 @@ und je eine Karte für Hin- und Rückfahrt mit Zeitstrahl: Halte, Gleise, Umstie
 Züge blau, Tram/Bus orange.
 
 **Optionen:** Gibt es mehrere passende Verbindungen, stehen sie als Zeit-Chips über der
-Karte. Antippen zeigt sie an, Wischen über die Verbindung blättert genau eine weiter
-(am Mac: Pfeiltasten auf den Chips). Der grüne Punkt markiert die überwachte Fahrt.
-„Diese nehmen“ macht die angezeigte Option zur überwachten. Andere Optionen zeigen den
-Fahrplanstand der letzten Planung, nur die überwachte hat Echtzeit.
+Karte, jeweils mit Live-Status („+12 min“, „fällt aus“, „Anschluss weg“). Antippen zeigt
+sie an, Wischen über die Verbindung blättert genau eine weiter (am Mac: Pfeiltasten auf
+den Chips). Der grüne Punkt markiert die überwachte Fahrt. „Diese nehmen“ macht die
+angezeigte Option zur überwachten. Alle Züge haben DB-Echtzeit; kommt ein anderer
+(z. B. verspäteter) Zug rechtzeitig am selben Umstiegsbahnhof an, erscheint er als eigene
+Option „… bis Frankfurt Hbf, dann weiter wie geplant“.
+
+**Abfahrtstafel:** Ab 90 min vor deinem nächsten Zug steht unter der Fahrt die Tafel
+dieses Bahnhofs, nur Nahverkehr in deine Richtung, mit Echtzeit. Steigst du in einen
+anderen Zug, tippe „Nehme ich“: Der Bot plant den Rest der Fahrt ab diesem Zug, überwacht
+ab dann ihn und schickt den neuen Plan per Push. An einem Umstiegsbahnhof zählt die Tafel
+erst ab deiner Ankunft dort.
+
+**Schnell laden:** Ausführlich geladen wird nur die Hauptfahrt (Hinfahrt, bis du
+angekommen bist, danach die Rückfahrt). Die andere ist eine Zeile und lädt erst mit
+„Details“. Alles Rechnen mit Bahndaten macht der Dienst im Hintergrund; das Dashboard
+liest nur. Seite, Logo und Schrift bleiben im Browser zwischengespeichert (Seite 10 min,
+nach einem Deploy also spätestens dann aktuell).
 
 **Tram und Bus:** Unter jeder Verbindung über Darmstadt Hbf stehen die direkten Trams
 und Busse zwischen Hbf und Campus, die noch passen (Hinweg: nach Zugankunft + 7 min und
@@ -268,6 +290,7 @@ Typische Probleme:
 | Symptom | Ursache / Lösung |
 |---|---|
 | „Bahndaten nicht erreichbar“ | Transitous gestört oder Pi offline. `curl -sI https://api.transitous.org/api/v1/health` |
+| „Name nicht auflösbar (DNS)“ oben im Dashboard | DNS auf dem Pi kaputt. Am 5.11.2026 war das Tailscale-DNS ohne Upstream; behoben mit `sudo tailscale set --accept-dns=false` (Pi nutzt den Router). Prüfen: `getent hosts api.transitous.org` |
 | Kein Push | Topic in App und `.env` vergleichen, `zugbot test-push` |
 | Gleise fehlen bei Zügen | DB-Schlüssel fehlt oder EVA-Nummern leer (`zugbot haltestellen --eva`) |
 | „Keine passende Hinfahrt“ | `zugbot plan --datum … --details` zeigt, warum jede Verbindung verworfen wurde |
@@ -279,4 +302,5 @@ Typische Probleme:
   Kartendaten © OpenStreetMap-Mitwirkende. Regeln: https://transitous.org/api/ (User-Agent
   mit Kontakt, sparsame Abfragen, quelloffener, nicht kommerzieller Einsatz).
   Der Bot stellt etwa 10–25 Suchanfragen am Tag, Aktualisierungen laufen über `refresh-itinerary`.
-- Gleise: DB Timetables API (DB InfraGO), mit eigenem Schlüssel.
+- Zug-Echtzeit und Gleise: DB Timetables API (DB InfraGO), mit eigenem Schlüssel.
+- Schrift: Figtree, SIL Open Font License (`zugbot/static/OFL-Figtree.txt`).

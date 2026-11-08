@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,9 +55,23 @@ def env() -> Env:
     )
 
 
+# Zwischenspeicher: Datei -> (Änderungszeit, Inhalt). YAML lesen kostet auf dem
+# Pi Zero ~0,3 s pro Datei, und Dashboard und Dienst fragen oft danach. Neu
+# gelesen wird nur, wenn sich die Datei geändert hat.
+_yaml_cache: dict[str, tuple[float, dict]] = {}
+_Lader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)   # C-Parser, falls installiert
+
+
 def lade_yaml(name: str) -> dict:
-    with open(CONFIG_DIR / name, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    pfad = CONFIG_DIR / name
+    stand = pfad.stat().st_mtime
+    alt = _yaml_cache.get(name)
+    if alt is None or alt[0] != stand:
+        with open(pfad, encoding="utf-8") as f:
+            alt = (stand, yaml.load(f, Loader=_Lader) or {})
+        _yaml_cache[name] = alt
+    # Kopie, damit ein Aufrufer, der etwas ändert, den Zwischenspeicher nicht verändert
+    return copy.deepcopy(alt[1])
 
 
 def einstellungen() -> dict:
@@ -71,7 +86,7 @@ def stundenplan_roh() -> dict:
 
 
 def zeitzone() -> ZoneInfo:
-    return ZoneInfo(einstellungen().get("zeitzone", "Europe/Berlin"))
+    return ZoneInfo(lade_yaml("einstellungen.yaml").get("zeitzone", "Europe/Berlin"))
 
 
 def schreibe_haltestellen_feld(feld: str, werte: dict[str, str]) -> None:
