@@ -26,7 +26,7 @@ from typing import Callable, Optional
 from . import bewertung
 from .bahn import Bahn, BahnFehler
 from .bewertung import Regeln
-from .modell import Abschnitt, Halt, Teil, Verbindung, basis_id
+from .modell import Abschnitt, Halt, Teil, Verbindung, _zeit, basis_id
 from .stundenplan import Tag
 
 log = logging.getLogger(__name__)
@@ -272,6 +272,11 @@ class Planer:
                     continue
                 teile = ([Teil(vorne)] if vorne else []) + [t]
                 kandidaten.append(Verbindung(teile, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+        if not kandidaten:
+            # Die Suche liefert nur die "besten" Verbindungen. Fährt kurz danach
+            # etwas Besseres (S6 17:05, RE 60 17:07), kommt dein Zug nie vor.
+            # Dann die Fahrt selbst holen und ab ihren Umstiegsbahnhöfen weitersuchen.
+            kandidaten = self._ueber_fahrt(v, vorne, halt_id, nummer, ab_plan, ziele)
         for k in kandidaten:
             self.gleise.ergaenzen(k)
         gut = [k for k in kandidaten if not bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)]
@@ -282,6 +287,65 @@ class Planer:
         beste = max(gut, key=lambda x: bewertung.punkte_rettung(x, self.regeln, v.ziel_zeit))
         beste.hinweis = f"Du nimmst {linie} {ab_plan:%H:%M}"
         return beste
+
+    def _ueber_fahrt(self, v: Verbindung, vorne: list[Abschnitt], halt_id: str, nummer: str,
+                     ab_plan: datetime, ziele: list[str]) -> list[Verbindung]:
+        """Kandidaten "dein Zug bis X, ab X weiter" für die Umstiegsbahnhöfe X auf
+        seinem Weg: Halte aus den Einstellungen und aus deinem bisherigen Plan
+        (auch "Frankfurt Hbf tief" zu "Frankfurt Hbf"), oder direkt dein Ziel."""
+        try:
+            abfahrten = self.bahn.abfahrten(halt_id, ab_plan - timedelta(minutes=1))
+        except (BahnFehler, ValueError) as exc:
+            log.info("Abfahrten nicht abrufbar: %s", exc)
+            return []
+        trip = next((s.get("tripId") for s in abfahrten
+                     if _zeit((s.get("place") or {}).get("scheduledDeparture")) == ab_plan
+                     and _nummer(s.get("routeShortName") or s.get("displayName") or "") == nummer), None)
+        if not trip:
+            return []
+        try:
+            legs = self.bahn.fahrt(trip).get("legs") or []
+        except (BahnFehler, ValueError) as exc:
+            log.info("Fahrt %s nicht abrufbar: %s", trip, exc)
+            return []
+        if not legs:
+            return []
+        leg = legs[0]
+        bekannt = {basis_id(h["id"]) for h in self.e["haltestellen"].values() if h.get("id")}
+        bekannt |= {a.von.basis for a in v.fahrten} | {a.nach.basis for a in v.fahrten}
+        namen = [h["name"] for h in self.e["haltestellen"].values()] + [a.nach.name for a in v.fahrten]
+        ziel_basen = {basis_id(z) for z in ziele}
+        # Die Fahrt kommt ab ihrem Startbahnhof, ab deinem Einstieg zuschneiden
+        halte = [leg.get("from") or {}] + (leg.get("intermediateStops") or []) + [leg.get("to") or {}]
+        start = next((i for i, s in enumerate(halte) if basis_id(s.get("stopId", "")) == basis_id(halt_id)), None)
+        if start is None:
+            return []
+        einstieg = halte[start]
+        kandidaten = []
+        for i, s in enumerate(halte):
+            if i <= start or not s.get("stopId"):
+                continue
+            b = basis_id(s["stopId"])
+            if not (b in bekannt or b in ziel_basen or any(s.get("name", "").startswith(n) for n in namen)):
+                continue
+            stueck = dict(leg, **{"from": einstieg}, to=s, intermediateStops=halte[start + 1:i],
+                          startTime=einstieg.get("departure") or einstieg.get("scheduledDeparture"),
+                          scheduledStartTime=einstieg.get("scheduledDeparture"),
+                          endTime=s.get("arrival") or s.get("scheduledArrival"),
+                          scheduledEndTime=s.get("scheduledArrival"))
+            zug = Abschnitt.aus_motis(stueck)
+            erster = ([Teil(vorne)] if vorne else []) + [Teil([zug])]
+            if b in ziel_basen:          # dein Zug fährt direkt bis zum Ziel
+                kandidaten.append(Verbindung(erster, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+                continue
+            mindest = self.regeln.umstieg_darmstadt_min if bewertung.ist_darmstadt_hbf(zug.nach, self.regeln) \
+                else self.regeln.umstieg_min
+            for z in ziele:
+                for t in self._suche(s["stopId"], z, abfahrt=zug.an + timedelta(minutes=mindest), anzahl=2):
+                    kandidaten.append(Verbindung(erster + [t], v.richtung, v.campus, v.ziel_zeit,
+                                                 neu_geplant=True))
+        log.info("Nehme-ich über Fahrt %s: %d Kandidaten", trip, len(kandidaten))
+        return kandidaten
 
     # ------------------------------------------------------------ Neuplanung
     def neu_planen(self, v: Verbindung, jetzt: datetime) -> Optional[Verbindung]:
@@ -377,8 +441,8 @@ def _verschiedene_zuege(sortiert: list[Verbindung]) -> list[Verbindung]:
 
 
 def _nummer(linie: str) -> str:
-    """'RE 50' -> '50', 'S6' -> '6' (wie gleise.DbGleise._liniennummer)."""
-    m = re.search(r"(\d+)\s*$", linie)
+    """'RE 50' -> '50', 'S6' -> '6', 'RE60 (4672)' -> '60' (Zugnummer in Klammern weg)."""
+    m = re.search(r"(\d+)\s*$", re.sub(r"\s*\(.*?\)\s*$", "", linie or ""))
     return m.group(1) if m else ""
 
 

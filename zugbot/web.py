@@ -182,7 +182,8 @@ def _tafel(p: dict, richtung: str, jetzt: datetime) -> Optional[dict]:
     t = (p.get("tafel") or {}).get(richtung)
     if not t or jetzt - datetime.fromisoformat(t["stand"]) > timedelta(minutes=15):
         return None      # zu alt, lieber nichts zeigen
-    return {**t, "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M")}
+    return {**t, "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M"),
+            "fehler": (p.get("zug_fehler") or {}).get(richtung, "")}
 
 
 def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: datetime, w: dict,

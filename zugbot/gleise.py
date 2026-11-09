@@ -123,7 +123,8 @@ class DbGleise:
 
     @staticmethod
     def _liniennummer(linie: str) -> str:
-        m = re.search(r"(\d+)\s*$", linie)
+        """'RE 50' -> '50', 'RE60 (4672)' -> '60' (Zugnummer in Klammern weg)."""
+        m = re.search(r"(\d+)\s*$", re.sub(r"\s*\(.*?\)\s*$", "", linie or ""))
         return m.group(1) if m else ""
 
     def _finde(self, eva: str, zeit: datetime, art: str, linie: str) -> Optional[ET.Element]:
@@ -201,15 +202,23 @@ class DbGleise:
                 a.ab_ist = _db_zeit(dp.get("ct")) or (a.ab_plan if _nah(a.ab_plan) else a.ab_ist)
                 a.ausfall = dp.get("cs") == "c"
                 a.quelle = "DB"
+        an_db = None
         eva_an = self.eva.get(a.nach.basis)
         if eva_an:
             ar = self._finde(eva_an, a.an_plan, "ar", a.linie)
             if ar is not None:
                 a.gleis_an_plan = ar.get("pp") or a.gleis_an_plan
                 a.gleis_an = ar.get("cp") or ar.get("pp") or a.gleis_an
-                a.an_ist = _db_zeit(ar.get("ct")) or (a.an_plan if _nah(a.ab_plan) else a.an_ist)
+                an_db = _db_zeit(ar.get("ct"))
+                a.an_ist = an_db or (a.an_plan if _nah(a.ab_plan) else a.an_ist)
                 a.ausfall = a.ausfall or ar.get("cs") == "c"
                 a.quelle = "DB"
+        # Fährt der Zug verspätet ab, kommt er nicht pünktlich an. Meldet die DB
+        # für die Ankunft (noch) nichts, die Abfahrtsverspätung übernehmen.
+        if an_db is None and a.ab_ist and a.ab_ist > a.ab_plan:
+            mindestens = a.an_plan + (a.ab_ist - a.ab_plan) - timedelta(minutes=3)  # etwas Aufholen
+            if a.an_ist is None or a.an_ist < mindestens:
+                a.an_ist = max(mindestens, a.an_plan)
 
 
 def _db_zeit(wert: Optional[str]) -> Optional[datetime]:

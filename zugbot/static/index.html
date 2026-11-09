@@ -342,6 +342,7 @@ function zugeklappt(f, datum) {
 function tafelHtml(t, datum, richtung) {
   if (!t || !t.zuege.length) return "";
   return `<div class="tafel"><h3>Abfahrten ${esc(t.bahnhof)} <span class="klein">· Stand ${esc(t.stand)}</span></h3>
+    ${t.fehler ? `<div class="lage warn">${esc(t.fehler)}</div>` : ""}
     ${t.zuege.map(z => `<div class="tafel-zeile">
       <span class="t ${z.plus > 0 || z.ausfall ? "spaet" : ""}">${esc(z.ist)}${z.plus ? `<s>${esc(z.plan)}</s>` : ""}</span>
       <span class="wohin"><b>${esc(z.linie)}</b>${z.gleis ? ` · Gl. ${esc(z.gleis)}` : ""}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span></span>

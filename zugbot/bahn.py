@@ -107,6 +107,17 @@ class Bahn:
         }
         return self._get("/api/v6/plan", params).get("itineraries", [])
 
+    def abfahrten(self, halt_id: str, zeit: datetime, anzahl: int = 30) -> list[dict]:
+        """Abfahrten an einem Halt ab zeit (stoptimes), mit tripId je Fahrt."""
+        return self._get("/api/v5/stoptimes", {
+            "stopId": halt_id, "n": anzahl,
+            "time": zeit.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }).get("stopTimes", [])
+
+    def fahrt(self, trip_id: str) -> dict:
+        """Eine einzelne Fahrt mit allen Halten (als Verbindung mit einem Abschnitt)."""
+        return self._get("/api/v5/trip", {"tripId": trip_id, "language": "de"})
+
     def aktualisieren(self, verbindungs_id: str) -> dict:
         """Holt Verspätungen und Ausfälle für eine gespeicherte Verbindung (refresh-itinerary)."""
         daten = self._get("/api/v6/refresh-itinerary",

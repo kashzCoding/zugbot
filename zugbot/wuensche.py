@@ -139,6 +139,9 @@ def zug_nehmen(d: date, richtung: str, zug: dict) -> None:
     if richtung not in ("hin", "rueck"):
         raise ValueError("Richtung muss hin oder rueck sein.")
 
+    # Zeitstempel: jedes Tippen ist ein neuer Wunsch, auch derselbe Zug nach einem Fehlschlag
+    zug = {**zug, "um": datetime.now(config.zeitzone()).isoformat(timespec="seconds")}
+
     def f(w):
         w.setdefault("zug", {})[f"{d.isoformat()}:{richtung}"] = zug
         w.get("wahl", {}).pop(f"{d.isoformat()}:{richtung}", None)

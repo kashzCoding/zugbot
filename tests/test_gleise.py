@@ -83,3 +83,29 @@ def test_andere_linie_gleiche_minute_nicht_verwechseln(db):
                                             ("S", "6", "S6"), ("HLB", "51", "RB 51"), ("RB", "RB82", "RB 82")])
 def test_linienname_wie_transitous(kat, l, erwartet):
     assert gleise._linie(kat, l) == erwartet
+
+
+def test_ankunft_erbt_abfahrtsverspaetung(db):
+    """RE 50 fährt +37 ab, für die Ankunft meldet die DB nichts: nicht pünktlich anzeigen."""
+    g, antworten = db
+    ab = datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(minutes=30)
+    an = ab + timedelta(minutes=40)
+    eva_ab = E["haltestellen"]["gelnhausen"]["eva"]
+    eva_an = E["haltestellen"]["frankfurt_hbf"]["eva"]
+    antworten[f"plan:{eva_ab}"] = tafel(f'<s id="1"><dp pt="{ab:%y%m%d%H%M}" pp="2" l="RE50"/></s>')
+    antworten[f"fchg:{eva_ab}"] = tafel(f'<s id="1"><dp ct="{(ab + timedelta(minutes=37)):%y%m%d%H%M}"/></s>')
+    antworten[f"plan:{eva_an}"] = tafel(f'<s id="2"><ar pt="{an:%y%m%d%H%M}" pp="7" l="RE50"/></s>')
+    antworten[f"fchg:{eva_an}"] = tafel("")
+    v = zug(ab)
+    g.ergaenzen(v)
+    a = v.fahrten[0]
+    assert a.an_ist > a.ab_ist
+    assert a.an_ist >= an + timedelta(minutes=30)
+
+
+def test_liniennummer_mit_zugnummer():
+    from zugbot.planer import _nummer
+    assert _nummer("RE60 (4672)") == "60"
+    assert _nummer("RE 60") == "60"
+    assert _nummer("S6") == "6"
+    assert gleise.DbGleise._liniennummer("RE50 (4530)") == "50"

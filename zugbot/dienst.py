@@ -194,11 +194,13 @@ class Dienst:
             ab = datetime.fromisoformat(zug["ab_plan"])
             neu = self.planer.ab_zug(Verbindung.aus_dict(p[r]), zug["halt_id"], zug["linie"], ab, jetzt)
             if neu is None:
+                p.setdefault("zug_fehler", {})[r] = f"Mit {zug['linie']} {ab:%H:%M} keine Weiterfahrt gefunden, der bisherige Plan bleibt."
                 ntfy.senden("Keine Verbindung gefunden",
                             f"Mit {zug['linie']} {ab:%H:%M} finde ich keine Weiterfahrt. "
                             "Der bisherige Plan bleibt.", "hoch")
                 continue
             log.info("Zug genommen %s %s: %s", d, r, neu.schluessel())
+            p.get("zug_fehler", {}).pop(r, None)
             p[r] = neu.als_dict()
             p.setdefault("wahl", {})[r] = neu.schluessel()
             p.get("geprueft", {}).pop(r, None)
