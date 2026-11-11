@@ -98,3 +98,15 @@ def test_wahl_anwenden():
     assert Verbindung.aus_dict(p["hin"]).schluessel() == andere.schluessel()
     assert p["wahl"]["hin"] == andere.schluessel() and "hin" not in p["geprueft"]
     assert not zustand.wahl_anwenden(p, "hin", "gibt-es-nicht")
+
+
+def test_heim_bis_wird_geprueft_und_beschrieben():
+    from datetime import date
+    from zugbot import wuensche
+    d = date(2026, 11, 11)
+    a = wuensche.pruefen(d, heim_bis="17:35", heute=d)
+    assert a["heim_bis"] == "17:35" and "zu Hause bis 17:35" in wuensche.beschreibung(a)
+    assert "heim_bis" not in wuensche.pruefen(d, an="10:00", heute=d)
+    import pytest
+    with pytest.raises(ValueError):
+        wuensche.pruefen(d, rueck_ab="18:00", heim_bis="17:35", heute=d)

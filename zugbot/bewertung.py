@@ -200,6 +200,11 @@ def punkte_rueck(v: Verbindung, regeln: Regeln) -> float:
     return -_minuten_absolut(v.an) - regeln.strafe_umstieg * v.umstiege + _reserve_bonus(v, regeln)
 
 
+def punkte_heim_bis(v: Verbindung, regeln: Regeln) -> float:
+    """Rückweg mit "spätestens zu Hause um": möglichst spät los (lange bleiben können)."""
+    return _minuten_absolut(v.ab_plan) - regeln.strafe_umstieg * v.umstiege + _reserve_bonus(v, regeln)
+
+
 def punkte_rettung(v: Verbindung, regeln: Regeln, ziel_zeit: Optional[datetime]) -> float:
     """Neuplanung unterwegs: pünktlich ankommen schlägt alles, sonst früheste Ankunft."""
     puenktlich = ziel_zeit is not None and v.an <= ziel_zeit

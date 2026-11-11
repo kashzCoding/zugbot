@@ -68,7 +68,9 @@ def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], 
         teile.append(f"Erster Termin {t.von:%H:%M} {t.titel}, {t.raum}")
     if rueck:
         teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, zu Hause {rueck.an:%H:%M}"
-                     + (" (eigene Zeit)" if tag.rueck_ab else ""))
+                     + (" (eigene Zeit)" if tag.rueck_ab or tag.heim_bis else ""))
+    elif tag.heim_bis:
+        teile.append(f"Keine Rückfahrt gefunden, mit der du bis {tag.heim_bis:%H:%M} zu Hause bist.")
     teile += tag.warnungen
     return titel, "\n".join(teile)
 

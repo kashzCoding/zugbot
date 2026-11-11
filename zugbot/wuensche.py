@@ -87,12 +87,15 @@ def _uhrzeit(text: Optional[str], was: str) -> Optional[str]:
     return f"{int(m.group(1)):02d}:{m.group(2)}"
 
 
-def pruefen(d: date, an=None, rueck_ab=None, campus=None, heute: Optional[date] = None) -> dict:
+def pruefen(d: date, an=None, rueck_ab=None, campus=None, heute: Optional[date] = None,
+            heim_bis=None) -> dict:
     """Gibt die bereinigte Anpassung zurück oder wirft ValueError mit deutschem Text."""
     heute = heute or _heute()
     if not heute <= d <= heute + timedelta(days=TAGE_VORAUS):
         raise ValueError(f"Eigene Zeiten gehen nur für heute bis in {TAGE_VORAUS} Tagen.")
     a = {"an": _uhrzeit(an, "Ankunft"), "rueck_ab": _uhrzeit(rueck_ab, "Rückfahrt")}
+    if _uhrzeit(heim_bis, "Zu Hause um"):      # Schlüssel nur wenn gesetzt, alte Einträge bleiben gleich
+        a["heim_bis"] = _uhrzeit(heim_bis, "Zu Hause um")
     if campus not in (None, ""):
         if campus not in config.einstellungen()["campus"]:
             raise ValueError(f"Campus „{campus}“ gibt es nicht.")
@@ -101,13 +104,16 @@ def pruefen(d: date, an=None, rueck_ab=None, campus=None, heute: Optional[date] 
         a["campus"] = None
     if a["an"] and a["rueck_ab"] and a["rueck_ab"] <= a["an"]:
         raise ValueError("Die Rückfahrt muss nach der Ankunft liegen.")
+    for k, was in (("an", "der Ankunft"), ("rueck_ab", "„Zurück ab“")):
+        if a.get("heim_bis") and a[k] and a["heim_bis"] <= a[k]:
+            raise ValueError(f"„Zu Hause um“ muss nach {was} liegen.")
     return a
 
 
 # ------------------------------------------------------------ Schreiben
-def anpassen(d: date, an=None, rueck_ab=None, campus=None) -> Optional[dict]:
+def anpassen(d: date, an=None, rueck_ab=None, campus=None, heim_bis=None) -> Optional[dict]:
     """Setzt eigene Zeiten für einen Tag. Alles leer = zurücksetzen."""
-    a = pruefen(d, an, rueck_ab, campus)
+    a = pruefen(d, an, rueck_ab, campus, heim_bis=heim_bis)
     leer = not any(a.values())
 
     def f(w):
@@ -171,6 +177,8 @@ def beschreibung(a: Optional[dict]) -> str:
         teile.append(f"an {a['an']}")
     if a.get("rueck_ab"):
         teile.append(f"zurück ab {a['rueck_ab']}")
+    if a.get("heim_bis"):
+        teile.append(f"zu Hause bis {a['heim_bis']}")
     if a.get("campus"):
         teile.append(config.einstellungen()["campus"][a["campus"]].get("anzeige", a["campus"]))
     return ", ".join(teile)
@@ -191,21 +199,23 @@ def tag(d: date, w: Optional[dict] = None, plan: Optional[dict] = None) -> Tag:
         return datetime(d.year, d.month, d.day, h, m, tzinfo=tz)
 
     an, rueck = zeit(a.get("an")), zeit(a.get("rueck_ab"))
+    heim = zeit(a.get("heim_bis"))
     if t.frei:
         campus = a.get("campus")
-        if not (an and rueck and campus):
+        if not (an and (rueck or heim) and campus):
             t.warnungen.append("Eigene Zeiten an einem freien Tag brauchen Ankunft, Rückfahrt und Campus.")
             t.eigene = a     # gespeichert, damit der Dienst nicht immer wieder neu plant
             return t
         # Freier Tag, du willst trotzdem hin: ein Termin aus deinen Zeiten
-        t = Tag(d, frei=False, termine=[Termin("Eigene Zeit", "", an, rueck, campus)],
+        t = Tag(d, frei=False, termine=[Termin("Eigene Zeit", "", an, rueck or heim, campus)],
                 campus=campus, warnungen=t.warnungen)
     t.eigene = a
     t.ziel_beginn = an
     t.rueck_ab = rueck
+    t.heim_bis = heim
     if a.get("campus"):
         t.campus = a["campus"]
     beginn = an or t.erster.von
-    if rueck is None and t.letzter.bis <= beginn:
+    if rueck is None and heim is None and t.letzter.bis <= beginn:
         t.warnungen.append(f"Deine Termine enden vor {beginn:%H:%M}, bitte auch die Rückfahrt-Zeit setzen.")
     return t

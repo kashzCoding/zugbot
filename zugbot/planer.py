@@ -157,26 +157,35 @@ class Planer:
     def frueheste_rueckfahrt(self, tag: Tag) -> datetime:
         if tag.rueck_ab:        # eigene Zeit: ab dann an der Haltestelle
             return tag.rueck_ab
+        if tag.heim_bis:        # du musst früher los: das Vorlesungsende zählt nicht
+            return tag.heim_bis - timedelta(hours=4)
         return tag.letzter.bis + timedelta(minutes=self.e["rueckweg"]["frueheste_abfahrt_nach_ende_minuten"])
 
     def rueckweg(self, tag: Tag) -> Ergebnis:
         ab = self.frueheste_rueckfahrt(tag)
+        bis = tag.heim_bis      # "spätestens zu Hause um": rückwärts ab der Ankunft suchen
+        zeit = {"ankunft": bis} if bis else {"abfahrt": ab}
         if tag.campus == "lichtwiese":
             kandidaten = [
                 Verbindung([t], "rueck", tag.campus)
                 for start in self.campus_halte("lichtwiese")
                 for ueber in self.ueber_halte()
-                for t in self._suche(start, self.hid("gelnhausen"), abfahrt=ab, ueber=ueber, anzahl=3)
+                for t in self._suche(start, self.hid("gelnhausen"), ueber=ueber, anzahl=3, **zeit)
             ]
         else:
-            kandidaten = self._stadtmitte_rueck(ab)
-        return self._waehle(
-            kandidaten,
-            lambda v: bewertung.punkte_rueck(v, self.regeln),
-            lambda v: None if v.ab_plan >= ab else f"Abfahrt {v.ab_plan:%H:%M} vor Ende",
-        )
+            kandidaten = self._stadtmitte_rueck(ab, bis)
 
-    def _stadtmitte_rueck(self, ab: datetime) -> list[Verbindung]:
+        def bedingung(v: Verbindung) -> Optional[str]:
+            if v.ab_plan < ab:
+                return f"Abfahrt {v.ab_plan:%H:%M} vor Ende"
+            if bis and v.an_plan > bis:
+                return f"Ankunft {v.an_plan:%H:%M} nach {bis:%H:%M}"
+            return None
+
+        punkte = bewertung.punkte_heim_bis if bis else bewertung.punkte_rueck
+        return self._waehle(kandidaten, lambda v: punkte(v, self.regeln), bedingung)
+
+    def _stadtmitte_rueck(self, ab: datetime, bis: Optional[datetime] = None) -> list[Verbindung]:
         da = self.hid("darmstadt_hbf")
         starts = self.campus_halte("stadtmitte")
         mindest = self.regeln.umstieg_darmstadt_min
@@ -187,13 +196,16 @@ class Planer:
         if not erste:
             return []
         frueh = min(t.abschnitte[-1].an for t in erste if t.abschnitte)
-        # 2) Bester Zug ab Darmstadt Hbf Richtung Frankfurt
+        # 2) Bester Zug ab Darmstadt Hbf Richtung Frankfurt (mit "zu Hause um": die letzten davor)
+        zeit = {"ankunft": bis} if bis else {"abfahrt": frueh + timedelta(minutes=mindest)}
         zuege = [t for ueber in self.ueber_halte()
-                 for t in self._suche(da, self.hid("gelnhausen"),
-                                      abfahrt=frueh + timedelta(minutes=mindest), ueber=ueber, anzahl=3)]
+                 for t in self._suche(da, self.hid("gelnhausen"), ueber=ueber, anzahl=3, **zeit)]
+        if bis:
+            zuege = [z for z in zuege if _letzte_fahrt(z) and _letzte_fahrt(z).an_plan <= bis
+                     and _erste_fahrt(z).ab_plan >= frueh + timedelta(minutes=mindest)]
         zuege = [z for z in zuege if not bewertung.pruefe(Verbindung([z], "rueck", "stadtmitte"), self.regeln)]
-        zuege.sort(key=lambda z: bewertung.punkte_rueck(Verbindung([z], "rueck", "stadtmitte"), self.regeln),
-                   reverse=True)
+        punkte = bewertung.punkte_heim_bis if bis else bewertung.punkte_rueck
+        zuege.sort(key=lambda z: punkte(Verbindung([z], "rueck", "stadtmitte"), self.regeln), reverse=True)
         # 3) Passende Tram/Bus zu den besten zwei Zügen
         kandidaten = []
         for zug in zuege[:2]:

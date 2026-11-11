@@ -164,7 +164,14 @@ class Dienst:
     def _angepasst(self, z: dict, w: dict, d: date, jetzt: datetime) -> None:
         """Eigene Zeiten geändert: Tag neu planen."""
         log.info("Eigene Zeiten für %s: %s", d, wuensche.anpassung(w, d))
+        alt = z["plaene"].get(d.isoformat()) or {}
         p = self.tag_planen(d, w)
+        # Schon gefahrene Hinfahrt behalten: die neue Planung kennt nur den Fahrplan
+        if alt.get("hin") and Verbindung.aus_dict(alt["hin"]).an < jetzt:
+            p["hin"] = alt["hin"]
+            p["optionen"]["hin"] = (alt.get("optionen") or {}).get("hin", [])
+            if p.get("rueck"):
+                p["fehler"] = ""
         z["plaene"][d.isoformat()] = p
         for r in ("hin", "rueck"):
             z["gemeldet"].pop(f"{d.isoformat()}:{r}", None)
@@ -192,6 +199,8 @@ class Dienst:
                 continue
             p.setdefault("zug", {})[r] = zug
             ab = datetime.fromisoformat(zug["ab_plan"])
+            if ab < jetzt - timedelta(minutes=30):
+                continue      # alter Wunsch (z. B. nach einer Neuplanung): der Zug ist längst weg
             neu = self.planer.ab_zug(Verbindung.aus_dict(p[r]), zug["halt_id"], zug["linie"], ab, jetzt)
             if neu is None:
                 p.setdefault("zug_fehler", {})[r] = f"Mit {zug['linie']} {ab:%H:%M} keine Weiterfahrt gefunden, der bisherige Plan bleibt."

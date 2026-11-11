@@ -93,13 +93,14 @@ def cmd_anpassen(args) -> int:
             wuensche.zuruecksetzen(d)
             print(f"{d:%d.%m.}: wieder nach Stundenplan.")
             return 0
-        if not (args.an or args.rueck or args.campus):
-            print("Bitte --an, --rueck oder --campus angeben (oder --zuruecksetzen).")
+        if not (args.an or args.rueck or args.campus or args.heim):
+            print("Bitte --an, --rueck, --heim oder --campus angeben (oder --zuruecksetzen).")
             return 1
         # bestehende Werte behalten, nur Angegebenes ändern
         alt = wuensche.anpassung(wuensche.laden(), d) or {}
         a = wuensche.anpassen(d, an=args.an or alt.get("an"), rueck_ab=args.rueck or alt.get("rueck_ab"),
-                              campus=args.campus or alt.get("campus"))
+                              campus=args.campus or alt.get("campus"),
+                              heim_bis=args.heim or alt.get("heim_bis"))
     except ValueError as exc:
         print(exc)
         return 1
@@ -214,6 +215,7 @@ def main(argv=None) -> int:
     p.add_argument("--datum", help="JJJJ-MM-TT, heute oder morgen")
     p.add_argument("--an", help="da sein um HH:MM (zählt wie Vorlesungsbeginn, 5 min Puffer)")
     p.add_argument("--rueck", help="Rückfahrt frühestens ab HH:MM")
+    p.add_argument("--heim", help="spätestens zu Hause (Gelnhausen) um HH:MM")
     p.add_argument("--campus", choices=sorted(config.einstellungen()["campus"]))
     p.add_argument("--zuruecksetzen", action="store_true", help="wieder nach Stundenplan")
     p.set_defaults(f=cmd_anpassen)

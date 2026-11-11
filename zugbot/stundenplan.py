@@ -33,6 +33,7 @@ class Tag:
     eigene: Optional[dict] = None              # wie gespeichert, z. B. {"an": "10:00"}
     ziel_beginn: Optional[datetime] = None     # zählt wie Beginn des ersten Termins
     rueck_ab: Optional[datetime] = None        # Rückfahrt frühestens ab
+    heim_bis: Optional[datetime] = None        # spätestens dann in Gelnhausen
 
     @property
     def erster(self) -> Optional[Termin]:

@@ -378,7 +378,8 @@ def anpassen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     if daten.get("zuruecksetzen"):
         wuensche.zuruecksetzen(d)
         return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
-    a = wuensche.anpassen(d, an=daten.get("an"), rueck_ab=daten.get("rueck_ab"), campus=daten.get("campus"))
+    a = wuensche.anpassen(d, an=daten.get("an"), rueck_ab=daten.get("rueck_ab"), campus=daten.get("campus"),
+                          heim_bis=daten.get("heim_bis"))
     if a is None:
         return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
     hinweis = "" if d <= jetzt.date() + timedelta(days=1) else \

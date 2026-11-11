@@ -237,9 +237,10 @@
           <label>Da sein um <input type="time" id="a-an"></label>
           <label>Zurück ab <input type="time" id="a-rueck"></label>
         </div>
+        <label>Spätestens zu Hause um <input type="time" id="a-heim"></label>
         <div class="schnell" id="a-schnell" aria-label="Schnellwahl für Da sein um"></div>
         <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
-        <div class="klein">„Da sein um“ zählt wie ein Vorlesungsbeginn, du bist also 5 min vorher am Halt. Leere Felder bleiben wie im Stundenplan.</div>
+        <div class="klein">„Da sein um“ zählt wie ein Vorlesungsbeginn, du bist also 5 min vorher am Halt. „Zu Hause um“ sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür früher gehen musst. Leere Felder bleiben wie im Stundenplan.</div>
         <div class="knoepfe">
           <button class="knopf primaer" id="a-speichern" type="button">Speichern</button>
           <button class="knopf zweit" id="a-zurueck" type="button">Zurücksetzen</button>
@@ -456,6 +457,7 @@ function felderFuellen() {
   const e = (aktuellerTag() || {}).eigene || {};
   document.getElementById("a-an").value = e.an || "";
   document.getElementById("a-rueck").value = e.rueck_ab || "";
+  document.getElementById("a-heim").value = e.heim_bis || "";
   document.getElementById("a-campus").value = e.campus || "";
   infoAnpassen();
   meldung("", "");
@@ -479,10 +481,11 @@ async function anpassenSenden(zurueck) {
     const inhalt = {datum: document.getElementById("a-tag").value};
     if (zurueck) inhalt.zuruecksetzen = true;
     else Object.assign(inhalt, {an: document.getElementById("a-an").value, rueck_ab: document.getElementById("a-rueck").value,
+                                heim_bis: document.getElementById("a-heim").value,
                                 campus: document.getElementById("a-campus").value});
     const j = await senden("api/anpassen", inhalt);
     meldung(j.text, "ok");
-    if (zurueck) ["a-an", "a-rueck", "a-campus"].forEach(id => document.getElementById(id).value = "");
+    if (zurueck) ["a-an", "a-rueck", "a-heim", "a-campus"].forEach(id => document.getElementById(id).value = "");
     beschleunigen();
   } catch (e) {
     meldung(e.message, "fehler");
