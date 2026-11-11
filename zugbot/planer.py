@@ -291,13 +291,25 @@ class Planer:
             kandidaten = self._ueber_fahrt(v, vorne, halt_id, nummer, ab_plan, ziele)
         for k in kandidaten:
             self.gleise.ergaenzen(k)
-        gut = [k for k in kandidaten if not bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)]
+        def geht(liste):
+            return [k for k in liste if not bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)]
+        gut = geht(kandidaten)
+        selbst = False
+        if not gut and vorne:
+            # Der Weg zum Bahnhof (z. B. der Bus) ist für diesen Zug zu knapp. Du hast
+            # den Zug aber gewählt: er gilt, den Weg davor lässt der Plan weg.
+            ohne = [Verbindung(k.teile[1:], k.richtung, k.campus, k.ziel_zeit, neu_geplant=True)
+                    for k in kandidaten]
+            gut = geht(ohne)
+            selbst = bool(gut)
         if not gut:      # Anschluss nach Live-Stand weg: ab dort neu planen
             gut = [r for r in (self.neu_planen(k, jetzt) for k in kandidaten) if r]
         if not gut:
             return None
         beste = max(gut, key=lambda x: bewertung.punkte_rettung(x, self.regeln, v.ziel_zeit))
         beste.hinweis = f"Du nimmst {linie} {ab_plan:%H:%M}"
+        if selbst:
+            beste.hinweis += f", {vorne[-1].linie} {vorne[-1].ab_plan:%H:%M} wäre dafür zu knapp"
         return beste
 
     def _ueber_fahrt(self, v: Verbindung, vorne: list[Abschnitt], halt_id: str, nummer: str,

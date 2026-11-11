@@ -28,7 +28,8 @@ from urllib.parse import parse_qs
 from . import bewertung, config, ntfy, stundenplan, takt, texte, wuensche, zustand
 from . import tafel as tafel_mod
 from .bewertung import Regeln
-from .modell import Verbindung
+from .modell import Verbindung, basis_id
+from .planer import _nummer
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -279,9 +280,15 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
     global _ankunft_laeuft
     jetzt_m = time.monotonic()
     v = Verbindung.aus_dict(p[richtung]) if p.get(richtung) else None
+    # "dein Zug" aus dem aktuellen Plan, nicht aus der gemerkten Tafel: nach
+    # "Nehme ich" muss die Markierung sofort wechseln.
+    mein = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
+                 and a.von.basis == basis_id(t["halt_id"])), None) if v else None
     zuege, offen = [], []
     for z in t["zuege"]:
         z = dict(z)
+        z["deiner"] = bool(mein) and z["pt"] == f"{mein.ab_plan:%y%m%d%H%M}" and \
+            _nummer(z["linie"]) == _nummer(mein.linie)
         alt = _ANKUNFT.get((t["halt_id"], z["linie"], z["pt"]))
         if z.get("deiner") and v:
             z["heim"] = f"{v.an:%H:%M}"
