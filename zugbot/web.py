@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs
 
-from . import bewertung, config, stundenplan, takt, texte, wuensche, zustand
+from . import bewertung, config, ntfy, stundenplan, takt, texte, wuensche, zustand
+from . import tafel as tafel_mod
 from .bewertung import Regeln
 from .modell import Verbindung
 
@@ -137,7 +138,31 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
         "hinweis": v.hinweis,
         "unterwegs": v.ab <= jetzt < v.an,
         "vorbei": v.an < jetzt,
+        "ab_iso": v.ab.isoformat(),
+        "schritt": _schritt(v, jetzt),
     }
+
+
+def _schritt(v: Verbindung, jetzt: datetime) -> Optional[dict]:
+    """Unterwegs: was als Nächstes zu tun ist. Die Seite zählt die Minuten selbst herunter."""
+    fahrten = v.fahrten
+    if not (v.ab <= jetzt < v.an):
+        return None
+    for i, a in enumerate(fahrten):
+        nxt = fahrten[i + 1] if i + 1 < len(fahrten) else None
+        if jetzt < a.ab:        # du wartest auf dieses Fahrzeug
+            return {"titel": f"{a.linie} fährt", "zeit_iso": a.ab.isoformat(),
+                    "text": f"{a.ab:%H:%M} ab {texte.kurzname(a.von.name)}",
+                    "gleis": _gleis_label(a)}
+        if jetzt < a.an:        # du sitzt drin
+            if nxt is None:
+                return {"titel": "Ankunft", "zeit_iso": a.an.isoformat(),
+                        "text": f"{a.an:%H:%M} in {texte.kurzname(a.nach.name)}", "gleis": ""}
+            warten = round((nxt.ab - a.an).total_seconds() / 60)
+            return {"titel": f"Umstieg {texte.kurzname(a.nach.name)}", "zeit_iso": a.an.isoformat(),
+                    "text": f"dann {nxt.linie} {nxt.ab:%H:%M}, {warten} min Zeit",
+                    "gleis": _gleis_label(nxt)}
+    return None
 
 
 def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetime, w: dict) -> list[dict]:
@@ -178,9 +203,45 @@ def _hauptfahrt(p: dict, jetzt: datetime) -> str:
     return "rueck" if hin and hin.an < jetzt else "hin"
 
 
-def _tafel(p: dict, richtung: str, jetzt: datetime) -> Optional[dict]:
-    t = (p.get("tafel") or {}).get(richtung)
-    if not t or jetzt - datetime.fromisoformat(t["stand"]) > timedelta(minutes=15):
+_TAFEL_WUNSCH: dict[tuple, dict] = {}    # auf Wunsch geladene Tafeln: (Datum, Richtung) -> Tafel
+_gleise = None
+
+
+def _tafel_roh(p: dict, d, richtung: str, jetzt: datetime) -> Optional[dict]:
+    """Die frischeste Tafel: vom Dienst oder auf Wunsch geladen; älter als 15 min zählt nicht."""
+    kandidaten = [(p.get("tafel") or {}).get(richtung), _TAFEL_WUNSCH.get((d.isoformat(), richtung))]
+    kandidaten = [t for t in kandidaten
+                  if t and jetzt - datetime.fromisoformat(t["stand"]) <= timedelta(minutes=15)]
+    return max(kandidaten, key=lambda t: t["stand"]) if kandidaten else None
+
+
+def tafel_laden(daten: dict, jetzt: Optional[datetime] = None) -> dict:
+    """"Andere Züge anzeigen": Abfahrtstafel sofort laden, auch Stunden vor der Fahrt."""
+    global _gleise
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
+    richtung = daten.get("richtung")
+    if richtung not in ("hin", "rueck"):
+        raise ValueError("Richtung muss hin oder rueck sein.")
+    if d != jetzt.date():
+        raise ValueError("Die Abfahrtstafel gibt es nur für heute.")
+    v = zustand.verbindung(zustand.laden(), d, richtung)
+    if v is None:
+        raise ValueError("Für diese Fahrt gibt es keinen Plan.")
+    e = config.einstellungen()
+    if _gleise is None:
+        from .gleise import DbGleise
+        _gleise = DbGleise(e)
+    t = tafel_mod.bauen(v, jetzt, _gleise, Regeln.aus_einstellungen(e), e, immer=True)
+    if not t or not t["zuege"]:
+        raise ValueError("Für diesen Bahnhof bekomme ich gerade keine Abfahrten.")
+    _TAFEL_WUNSCH[(d.isoformat(), richtung)] = t
+    return {"ok": True, "text": ""}
+
+
+def _tafel(p: dict, d, richtung: str, jetzt: datetime) -> Optional[dict]:
+    t = _tafel_roh(p, d, richtung, jetzt)
+    if not t:
         return None      # zu alt, lieber nichts zeigen
     return {**t, "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M"),
             "fehler": (p.get("zug_fehler") or {}).get(richtung, "")}
@@ -228,7 +289,9 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
             continue
         opt = optionen(p, d, r, regeln, jetzt, w)
         daten["fahrten"].append({"richtung": r, "titel": titel, "optionen": opt, "zu": False,
-                                 "aufklappbar": r != haupt, "tafel": _tafel(p, r, jetzt),
+                                 "aufklappbar": r != haupt, "tafel": _tafel(p, d, r, jetzt),
+                                 "tafel_ladbar": d == jetzt.date() and bool(p.get(r))
+                                                 and Verbindung.aus_dict(p[r]).an > jetzt,
                                  "fehlt": fehlt if not opt else ""})
     return daten
 
@@ -347,6 +410,8 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
                     ("Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." if status.get("fehler") else ""),
         "aktualisiert": datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else "",
         "kopf": kopf,
+        "meldungen": [{"um": m["um"][11:16], "titel": m["titel"], "text": m["text"], "prio": m.get("prio", "")}
+                      for m in reversed(ntfy.meldungen()) if m["um"][:10] == heute.isoformat()][:12],
         "tage": tage,
         # Abends ist morgen interessanter als ein erledigtes Heute
         "start_tag": 0 if "leer" not in kopf else 1,
@@ -393,7 +458,7 @@ def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
     richtung, pt = daten.get("richtung"), str(daten.get("pt", ""))
     p = zustand.plan(zustand.laden(), d)
-    tafel = ((p or {}).get("tafel") or {}).get(richtung) if richtung in ("hin", "rueck") else None
+    tafel = _tafel_roh(p or {}, d, richtung, jetzt) if richtung in ("hin", "rueck") else None
     zug = next((z for z in (tafel or {}).get("zuege", [])
                 if z["pt"] == pt and z["linie"] == daten.get("linie")), None)
     if zug is None:
@@ -406,7 +471,8 @@ def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     return {"ok": True, "text": f"{zug['linie']} {zug['ist']}: Ich plane den Rest der Fahrt, gleich kommt ein Push."}
 
 
-POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen, "/api/zug": zug_nehmen}
+POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen, "/api/zug": zug_nehmen,
+               "/api/tafel": tafel_laden}
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -26,6 +26,7 @@ import requests
 
 from . import bewertung, config, ntfy, stundenplan, takt, texte, ueberwachung, wuensche, zustand
 from . import planer as planer_mod
+from . import tafel as tafel_mod
 from .bahn import Bahn, BahnFehler
 from .bewertung import Regeln
 from .modell import Verbindung
@@ -235,33 +236,7 @@ class Dienst:
         p.setdefault("tafel", {})[richtung] = self._tafel(gewaehlt, jetzt)
 
     def _tafel(self, v: Verbindung, jetzt: datetime) -> Optional[dict]:
-        """Abfahrtstafel am Bahnhof deines nächsten Zuges, nur Züge in deine Richtung."""
-        zuege = [a for a in v.fahrten if a.produkt not in ("tram", "bus")]
-        naechster = next((a for a in zuege if a.ab > jetzt - timedelta(minutes=1)), None)
-        if naechster is None or jetzt < naechster.ab_plan - timedelta(minutes=TAFEL_AB_MINUTEN):
-            return None
-        eva = self.planer.gleise.eva.get(naechster.von.basis)
-        if not eva or not self.planer.gleise.aktiv:
-            return None
-        i = zuege.index(naechster)
-        rest = zuege[i:]
-        # Am Umstiegsbahnhof erst ab deiner Ankunft dort (mit Umstiegszeit) zählen
-        frueh = jetzt - timedelta(minutes=2)
-        if i > 0:
-            minimum = self.regeln.umstieg_darmstadt_min if bewertung.ist_darmstadt_hbf(naechster.von, self.regeln) \
-                else self.regeln.umstieg_min
-            frueh = max(frueh, zuege[i - 1].an + timedelta(minutes=minimum))
-        ziele = [a.nach.name for a in rest]
-        # Frankfurt Hbf und Süd sind gleichwertig (Pflicht: über einen der beiden)
-        pflicht = [self.e["haltestellen"][k]["name"] for k in self.e["pflicht_ueber"]]
-        if any(bewertung.ist_pflicht_halt(a.nach, self.regeln) for a in rest):
-            ziele += pflicht
-        zuege_tafel = self.planer.gleise.tafel(eva, frueh, max(naechster.ab, frueh) + timedelta(minutes=40), ziele)
-        for zt in zuege_tafel:
-            zt["deiner"] = zt["pt"] == f"{naechster.ab_plan:%y%m%d%H%M}" and \
-                planer_mod._nummer(zt["linie"]) == planer_mod._nummer(naechster.linie)
-        return {"bahnhof": texte.kurzname(naechster.von.name), "halt_id": naechster.von.id,
-                "stand": jetzt.isoformat(), "zuege": zuege_tafel[:8]}
+        return tafel_mod.bauen(v, jetzt, self.planer.gleise, self.regeln, self.e)
 
     def _selbsttest(self, status: dict, jetzt: datetime) -> None:
         """Prüft alle 30 min, ob DNS und die Dienste erreichbar sind. Das Ergebnis

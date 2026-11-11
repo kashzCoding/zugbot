@@ -109,6 +109,12 @@
   .zchip span { display: block; font-size: 11px; color: var(--grau); font-weight: 600; }
   .zchip span.warn, .zchip span.spaet { color: var(--orange-text); }
   .karte.erledigt { opacity: .65; }
+  .akzent .schritt { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .meldungen { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+  .meldungen li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; font-size: 14px; }
+  .meldungen .um { color: var(--grau, #6b7280); font-variant-numeric: tabular-nums; }
+  .meldungen .text { display: block; white-space: pre-line; color: var(--grau, #6b7280); }
+  .meldungen li.wichtig b { color: var(--orange-text, #9a5800); }
   .zchip span.ok { color: var(--gruen); }
   .zchip[aria-pressed="true"] span.warn, .zchip[aria-pressed="true"] span.spaet { color: var(--orange); }
   .zchip[aria-pressed="true"] span.ok { color: var(--akzent-hell); }
@@ -227,6 +233,12 @@
   <section class="akzent" id="akzent" aria-live="polite"></section>
   <div class="reiter" role="tablist" id="reiter"></div>
   <div class="tage" id="tage"></div>
+  <section class="karte" id="meldungen" hidden>
+    <details>
+      <summary><h2>Meldungen heute <span class="klein" id="m-anzahl"></span></h2></summary>
+      <ul class="meldungen" id="m-liste"></ul>
+    </details>
+  </section>
   <section class="karte" id="anpassen">
     <details id="anpassen-auf">
       <summary><h2>Zeiten anpassen</h2></summary>
@@ -286,10 +298,24 @@ function akzent(d) {
   }
   const balken = k.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}"></span>`).join("");
   const text = k.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}">${esc(s.kurz)}${s.plus ? " " + esc(s.plus) : ""}</span>`).join("");
-  const gross = k.unterwegs ? k.los.charAt(0).toUpperCase() + k.los.slice(1) : (k.los === "angekommen" ? "Angekommen" : `Los ${k.los}`);
-  setzen(el, `<div class="oben">${esc(k.richtung)}</div>
+  // Minuten zählt die Seite selbst (akzent läuft alle 20 s), nicht erst beim nächsten Abruf
+  const min = iso => Math.round((new Date(iso) - Date.now()) / 60000);
+  const dauer = m => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  let oben = k.richtung, gross, zeile;
+  if (k.unterwegs && k.schritt) {       // unterwegs: nur der nächste Schritt
+    const m = min(k.schritt.zeit_iso), s = k.schritt;
+    oben = `${k.richtung} · zu Hause/am Ziel ${k.an}`.replace("zu Hause/am Ziel", k.richtung.startsWith("Rück") ? "zu Hause" : "am Ziel");
+    gross = m > 0 ? `In ${dauer(m)}` : "Jetzt";
+    zeile = `<div class="schritt">${esc(s.titel)}</div>
+      <div class="zeile"><span>${esc(s.text)}</span>${s.gleis ? `<span class="gleis-marke">${esc(s.gleis)}</span>` : ""}</div>`;
+  } else {
+    const m = k.ab_iso ? min(k.ab_iso) : NaN;
+    gross = k.los === "angekommen" ? "Angekommen" : m > 0 && m < 180 ? `Los in ${dauer(m)}` : m <= 0 ? "Jetzt los" : `Los um ${k.ab}`;
+    zeile = `<div class="zeile"><span>${gross.includes(k.ab) ? "" : esc(k.ab) + " "}ab ${esc(k.von)}</span>${k.gleis ? `<span class="gleis-marke">${esc(k.gleis)}</span>` : ""}<span>an ${esc(k.an)}</span></div>`;
+  }
+  setzen(el, `<div class="oben">${esc(oben)}</div>
     <div class="gross">${esc(gross)}</div>
-    <div class="zeile"><span>${k.los.includes(k.ab) ? "" : esc(k.ab) + " "}ab ${esc(k.von)}</span>${k.gleis ? `<span class="gleis-marke">${esc(k.gleis)}</span>` : ""}<span>an ${esc(k.an)}</span></div>
+    ${zeile}
     ${k.hinweis ? `<div class="hinweis">${esc(k.hinweis)}</div>` : ""}
     <div class="balken" aria-hidden="true">${balken}</div>
     <div class="beschriftung" aria-hidden="true">${text}</div>`);
@@ -383,7 +409,8 @@ function fahrtKarte(f, datum) {
       <div class="mini-balken" aria-hidden="true">${mini}</div>
       ${strahl(o)}
       ${wahl}
-    </div>${tafelHtml(f.tafel, datum, f.richtung)}</section>`;
+    </div>${tafelHtml(f.tafel, datum, f.richtung) || (f.tafel_ladbar ?
+      `<div class="tafel"><button type="button" class="link" data-tafel="${esc(key)}">Andere Züge anzeigen</button></div>` : "")}</section>`;
 }
 
 function tagHtml(t, i) {
@@ -538,6 +565,13 @@ document.addEventListener("click", async ev => {
     planen(0);
     return;
   }
+  const tf = ev.target.closest("[data-tafel]");
+  if (tf) {
+    const [datum, richtung] = tf.dataset.tafel.split(":");
+    tf.disabled = true; tf.textContent = "Lade Abfahrten …";
+    senden("api/tafel", {datum, richtung}).then(laden).catch(e => { tf.disabled = false; tf.textContent = e.message; });
+    return;
+  }
   const zg = ev.target.closest("[data-zug]");
   if (zg) {
     zg.disabled = true; zg.textContent = "Plane …";
@@ -602,6 +636,15 @@ try { const t = sessionStorage.getItem("zugbot-tag"); if (t !== null) tagIndex =
 function beschleunigen() { schnell = 20; planen(1500); }
 function planen(ms) { clearTimeout(timer); timer = setTimeout(laden, ms); }
 
+function meldungenZeigen(liste) {
+  document.getElementById("meldungen").hidden = !liste.length;
+  document.getElementById("m-anzahl").textContent = liste.length ? `· ${liste.length}` : "";
+  setzen(document.getElementById("m-liste"), liste.map(m =>
+    `<li class="${m.prio === "hoch" || m.prio === "dringend" ? "wichtig" : ""}"><span class="um">${esc(m.um)}</span>
+      <span><b>${esc(m.titel)}</b><span class="text">${esc(m.text)}</span></span></li>`).join(""));
+}
+
+let geladenUm = 0;
 async function laden() {
   try {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
@@ -617,7 +660,7 @@ async function laden() {
     return;
   }
   try {
-    daten = d;
+    daten = d; geladenUm = Date.now();
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
     document.getElementById("live").classList.toggle("nah", d.modus.startsWith("Live"));
@@ -627,7 +670,7 @@ async function laden() {
     document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
     // ausgewählte Chips nach einer Übernahme wieder der überwachten Fahrt folgen lassen
     d.tage.forEach(t => t.fahrten.forEach(f => { if ((f.optionen || []).some(o => o.wird_gewaehlt)) delete auswahl[`${t.datum}:${f.richtung}`]; }));
-    akzent(d); tage(d); anpassen(d);
+    akzent(d); tage(d); anpassen(d); meldungenZeigen(d.meldungen || []);
     const wartend = JSON.stringify(d.tage).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
     if (wartend && schnell > 0) { schnell--; planen(3000); return; }
   } catch (e) {
@@ -639,6 +682,16 @@ async function laden() {
   planen(60000);
 }
 laden();
+// Countdown im Kasten mitzählen, ohne den Pi zu fragen
+setInterval(() => { if (daten && !document.hidden) akzent(daten); }, 20000);
+// Zurück auf der Seite (Handy entsperrt, Tab gewechselt): sofort frisch laden statt bis zu 1 min warten
+function zurueck() {
+  if (document.hidden || Date.now() - geladenUm < 15000) return;
+  if (Date.now() - geladenUm > 120000) document.getElementById("modus").textContent = "aktualisiere …";
+  laden();
+}
+document.addEventListener("visibilitychange", zurueck);
+window.addEventListener("pageshow", zurueck);
 </script>
 </body>
 </html>

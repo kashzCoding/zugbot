@@ -101,6 +101,7 @@ zugbot anpassen                                          # alle eigenen Zeiten a
 - **Da sein um** zählt wie ein Vorlesungsbeginn: Mit den üblichen 5 min Puffer bist du
   bei 10:00 um 9:55 am Halt.
 - **Zurück ab** ist die früheste Abfahrt am Campus-Halt (ohne Zuschlag).
+- **Spätestens zu Hause um** sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür vor Vorlesungsende gehen musst (`zugbot anpassen --datum heute --heim 17:35`).
 - **Campus** überschreibt den Campus aus dem Raum.
 - An einem freien Tag braucht es alle drei Angaben, dann plant der Bot trotzdem.
 - Geht für heute bis in 14 Tagen. Der Dienst übernimmt die Änderung innerhalb von Sekunden
@@ -207,6 +208,12 @@ den Chips). Der grüne Punkt markiert die überwachte Fahrt. „Diese nehmen“ 
 angezeigte Option zur überwachten. Alle Züge haben DB-Echtzeit; kommt ein anderer
 (z. B. verspäteter) Zug rechtzeitig am selben Umstiegsbahnhof an, erscheint er als eigene
 Option „… bis Frankfurt Hbf, dann weiter wie geplant“.
+
+**Blauer Kasten:** Zählt die Minuten bis zur Abfahrt selbst herunter. Unterwegs zeigt er nur den nächsten Schritt (Umstieg wo, welcher Zug, welches Gleis).
+
+**Meldungen heute:** Die Pushes des Tages zum Nachlesen (`daten/meldungen.json`).
+
+**Andere Züge anzeigen:** Lädt die Abfahrtstafel sofort, auch Stunden vor der Fahrt (nur heute).
 
 **Abfahrtstafel:** Ab 90 min vor deinem nächsten Zug steht unter der Fahrt die Tafel
 dieses Bahnhofs, nur Nahverkehr in deine Richtung, mit Echtzeit. Steigst du in einen
