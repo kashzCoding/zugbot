@@ -109,3 +109,11 @@ def test_liniennummer_mit_zugnummer():
     assert _nummer("RE 60") == "60"
     assert _nummer("S6") == "6"
     assert gleise.DbGleise._liniennummer("RE50 (4530)") == "50"
+
+
+def test_linie_ohne_zugnummer():
+    from zugbot.modell import linie_sauber
+    assert linie_sauber("RE50 (4503)") == "RE 50"
+    assert linie_sauber("RB68 (15322)") == "RB 68"
+    assert linie_sauber("S6") == "S6"
+    assert linie_sauber("Tram 3") == "Tram 3"

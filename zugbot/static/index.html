@@ -108,6 +108,7 @@
   .zchip b { display: block; font-size: 16px; font-weight: 800; }
   .zchip span { display: block; font-size: 11px; color: var(--grau); font-weight: 600; }
   .zchip span.warn, .zchip span.spaet { color: var(--orange-text); }
+  .karte.erledigt { opacity: .65; }
   .zchip span.ok { color: var(--gruen); }
   .zchip[aria-pressed="true"] span.warn, .zchip[aria-pressed="true"] span.spaet { color: var(--orange); }
   .zchip[aria-pressed="true"] span.ok { color: var(--akzent-hell); }
@@ -287,7 +288,7 @@ function akzent(d) {
   const gross = k.unterwegs ? k.los.charAt(0).toUpperCase() + k.los.slice(1) : (k.los === "angekommen" ? "Angekommen" : `Los ${k.los}`);
   setzen(el, `<div class="oben">${esc(k.richtung)}</div>
     <div class="gross">${esc(gross)}</div>
-    <div class="zeile"><span>${esc(k.ab)} ab ${esc(k.von)}</span>${k.gleis ? `<span class="gleis-marke">${esc(k.gleis)}</span>` : ""}<span>an ${esc(k.an)}</span></div>
+    <div class="zeile"><span>${k.los.includes(k.ab) ? "" : esc(k.ab) + " "}ab ${esc(k.von)}</span>${k.gleis ? `<span class="gleis-marke">${esc(k.gleis)}</span>` : ""}<span>an ${esc(k.an)}</span></div>
     ${k.hinweis ? `<div class="hinweis">${esc(k.hinweis)}</div>` : ""}
     <div class="balken" aria-hidden="true">${balken}</div>
     <div class="beschriftung" aria-hidden="true">${text}</div>`);
@@ -307,12 +308,12 @@ function strahl(o) {
       + `<span class="${h.ab_spaet ? "spaet" : ""}">${esc(h.ab)}</span>` + (h.ab_alt ? `<s>${esc(h.ab_alt)}</s>` : "");
     const unter = [h.gleis ? `<span class="chip">${esc(h.gleis)}</span>` : "",
                    h.umstieg ? `<span class="${h.umstieg_warn ? "warn" : ""}">${esc(h.umstieg)}</span>` : ""].join("");
-    const st = o.stadt && o.stadt.halt === i ? stadtBox(o.stadt) : "";
+    const st = o.stadt && o.stadt.halt === i && o.stadt.fahrten.length > 1 ? stadtBox(o.stadt) : "";
     html += `<div class="zeit">${zeit}</div><div class="schiene ${h.ziel ? "ziel" : ""}" style="${stil}"><i></i></div>
       <div class="halt-text"><div class="ort">${esc(h.ort)}</div>${unter ? `<div class="unter">${unter}</div>` : ""}${st}</div>`;
     if (nach) html += `<div></div><div class="schiene" style="--farbe:${farbe(nach)}"></div>
       <div class="fahrt-text"><b>${esc(nach.linie)}</b>${nach.richtung ? ` Richtung ${esc(nach.richtung)}` : ""}<br>
-        <span class="${nach.status_art}">${esc(nach.status)}</span> · ${esc(nach.fahrzeit)}</div>`;
+        ${nach.status_art === "plan" ? "" : `<span class="${nach.status_art}">${esc(nach.status)}</span> · `}${esc(nach.fahrzeit)}</div>`;
   });
   return `<div class="strahl">${html}</div>`;
 }
@@ -333,9 +334,9 @@ function gezeigt(f, datum) {
 
 function zugeklappt(f, datum) {
   const k = f.kurz;
-  return `<section class="karte"><button type="button" class="zu" data-auf="${esc(datum)}:${esc(f.richtung)}" aria-expanded="false">
-    <span><span class="titel-zu">${esc(f.titel)}</span><span class="zeit-kurz">${esc(k.ab)} → ${esc(k.an)}</span>
-      ${k.lage ? ` <span class="lage ${esc(k.lage_art)}">${esc(k.lage)}</span>` : ""}</span>
+  return `<section class="karte ${k.vorbei ? "erledigt" : ""}"><button type="button" class="zu" data-auf="${esc(datum)}:${esc(f.richtung)}" aria-expanded="false">
+    <span><span class="titel-zu">${esc(f.titel)}</span><span class="zeit-kurz">${k.vorbei ? `angekommen ${esc(k.an)}` : `${esc(k.ab)} → ${esc(k.an)}`}</span>
+      ${k.lage && !k.vorbei ? ` <span class="lage ${esc(k.lage_art)}">${esc(k.lage)}</span>` : ""}</span>
     <span class="mehr">Details</span></button></section>`;
 }
 
@@ -362,7 +363,7 @@ function fahrtKarte(f, datum) {
       <b>${esc(x.ab)}</b><span class="${esc(x.lage_art)}">${esc(x.lage && x.lage !== "pünktlich" ? x.lage : "an " + x.an)}</span></button>`).join("")}</div>` : "";
   const marken = [o.gewaehlt ? `<span class="chip ueberwacht">Wird überwacht</span>` : "",
                   o.wird_gewaehlt ? `<span class="chip ueberwacht">Wird übernommen …</span>` : "",
-                  o.empfohlen ? `<span class="chip empfohlen">Empfohlen</span>` : "",
+                  o.empfohlen && !o.gewaehlt && !o.wird_gewaehlt ? `<span class="chip empfohlen">Empfohlen</span>` : "",
                   o.lage && o.lage_art !== "ok" ? `<span class="chip warn">${esc(o.lage)}</span>` : "",
                   o.hinweis ? `<span class="chip warn">${esc(o.hinweis)}</span>` : ""].join("");
   const mini = o.segmente.map((s, i) => `<span class="${s.verspaetet ? "spaet" : o.abschnitte[i].steig ? "tram" : ""}" style="flex:${s.anteil}"></span>`).join("");
@@ -374,9 +375,10 @@ function fahrtKarte(f, datum) {
   return `<section class="karte"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>${zuKnopf}</div>
     ${chips}
     <div class="auswahl" data-key="${esc(key)}">
-      <div class="gross-zeit">${esc(o.ab)}<span class="pfeil">→</span>${esc(o.an)}</div>
-      <div class="klein">${esc(o.meta)}${f.optionen.length > 1 ? ` <span class="wisch-hinweis">· wischen für andere</span>` : ""}</div>
+      ${chips ? "" : `<div class="gross-zeit">${esc(o.ab)}<span class="pfeil">→</span>${esc(o.an)}</div>`}
+      <div class="klein">${chips ? `an ${esc(o.an)} · ` : ""}${esc(o.meta)}${f.optionen.length > 1 ? ` <span class="wisch-hinweis">· wischen für andere</span>` : ""}</div>
       ${marken ? `<div class="marken">${marken}</div>` : ""}
+      ${o.abschnitte.every(a => a.status_art === "plan") ? `<div class="klein">Zeiten laut Fahrplan, Echtzeit ab 90 min vor der Abfahrt</div>` : ""}
       <div class="mini-balken" aria-hidden="true">${mini}</div>
       ${strahl(o)}
       ${wahl}
@@ -393,7 +395,7 @@ function tagHtml(t, i) {
   } else if (t.fehlt) {
     info = `<section class="karte"><h2>${esc(t.titel)}</h2><div class="klein" style="margin-top:6px">${esc(t.fehlt)}</div></section>`;
   } else {
-    info = `<section class="karte"><div class="zeile-kopf"><h2>${esc(t.titel)}</h2><span class="campus-chip">${esc(t.campus)}</span></div>
+    info = `<section class="karte"><div class="zeile-kopf"><h2>Stundenplan</h2><span class="campus-chip">${esc(t.campus)}</span></div>
       <ul class="info">
         ${t.termin ? `<li>${ICON.ort}<span class="fett">${esc(t.termin)}</span></li>` : ""}
         <li>${ICON.uhr}<span>${t.eigene ? `Eigene Zeit: ${esc(t.eigene)}` : "Zeiten nach Stundenplan"} ·
@@ -403,7 +405,9 @@ function tagHtml(t, i) {
       </ul></section>`;
   }
   return `<div class="tag ${i === tagIndex ? "aktiv" : ""}" role="tabpanel" id="tag-${i}" aria-labelledby="reiter-${i}">
-    <div class="tag-titel">${esc(t.name)}</div>${info}${t.fahrten.map(f => fahrtKarte(f, t.datum)).join("")}</div>`;
+    <div class="tag-titel">${esc(t.name)}</div>${info}${
+      // erledigte, eingeklappte Fahrten nach unten: oben steht, was noch kommt
+      [...t.fahrten].sort((a, b) => !!(a.zu && a.kurz.vorbei) - !!(b.zu && b.kurz.vorbei)).map(f => fahrtKarte(f, t.datum)).join("")}</div>`;
 }
 
 function tage(d) {
@@ -613,7 +617,7 @@ async function laden() {
     daten = d;
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
-    document.getElementById("live").classList.toggle("nah", d.modus.startsWith("live"));
+    document.getElementById("live").classList.toggle("nah", d.modus.startsWith("Live"));
     const st = document.getElementById("stoerung");
     st.hidden = !d.stoerung;
     st.textContent = d.stoerung;

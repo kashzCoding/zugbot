@@ -223,7 +223,8 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
             lage, lage_art = _lage(v, bewertung.umstiege(v, regeln))
             daten["fahrten"].append({"richtung": r, "titel": titel, "zu": True, "fehlt": "",
                                      "kurz": {"ab": f"{v.ab:%H:%M}", "an": f"{v.an:%H:%M}",
-                                              "lage": lage, "lage_art": lage_art}})
+                                              "lage": lage, "lage_art": lage_art,
+                                              "vorbei": v.an < jetzt}})
             continue
         opt = optionen(p, d, r, regeln, jetzt, w)
         daten["fahrten"].append({"richtung": r, "titel": titel, "optionen": opt, "zu": False,
@@ -315,7 +316,6 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
     heute, morgen = jetzt.date(), jetzt.date() + timedelta(days=1)
     status = z.get("status", {})
     modus = status.get("modus", "normal")
-    ue = e["ueberwachung"]
     p_heute, p_morgen = zustand.plan(z, heute), zustand.plan(z, morgen)
 
     # Kopfkarte: die nächste oder laufende Fahrt heute
@@ -338,10 +338,11 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
     tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w, offen),
             tag_daten(p_morgen, morgen, "Morgen", regeln, e, jetzt, w, offen)]
     selbsttest = (status.get("selbsttest") or {}).get("fehler") or []
+    geprueft = datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else ""
     return {
         "datum": f"{stundenplan.WOCHENTAGE_LANG[heute.weekday()]}, {heute.day}. {MONATE[heute.month - 1]}",
-        "modus": f"live, alle {ue['intervall_nah_minuten']} min" if modus == "nah"
-                 else f"alle {ue['intervall_normal_minuten']} min",
+        # "Live" kurz vor und während der Fahrt (enger Takt), sonst nur wann zuletzt geprüft
+        "modus": ("Live · " if modus == "nah" else "") + (f"geprüft {geprueft}" if geprueft else "startet"),
         "stoerung": "; ".join(selbsttest) or
                     ("Bahndaten gerade nicht erreichbar, Stand kann veraltet sein." if status.get("fehler") else ""),
         "aktualisiert": datetime.fromisoformat(status["takt_um"]).strftime("%H:%M") if status.get("takt_um") else "",

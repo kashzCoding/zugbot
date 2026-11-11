@@ -57,8 +57,16 @@ def _produkt(leg: dict) -> str:
     return MODUS_PRODUKT.get(modus, modus.lower())
 
 
+def linie_sauber(name: str) -> str:
+    """'RE50 (4503)' -> 'RE 50', 'RB82' -> 'RB 82'; 'S6', 'Tram 3', 'Bus F' bleiben.
+    Die Zugnummer in Klammern hilft am Bahnsteig nicht."""
+    name = re.sub(r"\s*\(\d+\)\s*$", "", name or "").strip()
+    m = re.match(r"^(RE|RB|IRE)\s*(\d+)$", name, re.I)
+    return f"{m.group(1).upper()} {m.group(2)}" if m else name
+
+
 def _linie(leg: dict, produkt: str) -> str:
-    name = (leg.get("displayName") or leg.get("routeShortName") or "").strip()
+    name = linie_sauber(leg.get("displayName") or leg.get("routeShortName") or "")
     if produkt == "tram":
         return f"Tram {name}" if name and not name.lower().startswith("tram") else name or "Tram"
     if produkt == "bus":
@@ -147,6 +155,7 @@ class Abschnitt:
         d["von"] = Halt(**d["von"])
         d["nach"] = Halt(**d["nach"])
         d["zwischenhalte"] = [Halt(**h) for h in d.get("zwischenhalte", [])]
+        d["linie"] = linie_sauber(d.get("linie", ""))
         for k in ("ab_plan", "an_plan", "ab_ist", "an_ist"):
             d[k] = _zeit(d.get(k))
         return cls(**d)
