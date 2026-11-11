@@ -17,6 +17,8 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -239,11 +241,75 @@ def tafel_laden(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     return {"ok": True, "text": ""}
 
 
+# Ankunft am Ziel je Tafel-Zug ("mit diesem Zug wärst du um ... in Gelnhausen").
+# Jede Berechnung fragt Transitous, deshalb im Hintergrund und 20 min gemerkt.
+_ANKUNFT: dict[tuple, tuple[float, str]] = {}
+_ANKUNFT_MERKEN_S = 20 * 60
+_ankunft_lock = threading.Lock()
+_ankunft_laeuft = False
+_planer = None
+
+
+def _ankuenfte_rechnen(d, richtung: str, halt_id: str, offen: list[tuple]) -> None:
+    global _ankunft_laeuft, _planer
+    try:
+        if _planer is None:
+            from .bahn import Bahn
+            from .planer import Planer
+            e = config.einstellungen()
+            _planer = Planer(Bahn(e), e)
+        tz = config.zeitzone()
+        for linie, pt in offen:
+            text = ""
+            try:
+                v = zustand.verbindung(zustand.laden(), d, richtung)
+                ab_plan = datetime.strptime(pt, "%y%m%d%H%M").replace(tzinfo=tz)
+                neu = _planer.ab_zug(v, halt_id, linie, ab_plan, datetime.now(tz)) if v else None
+                text = f"{neu.an:%H:%M}" if neu else ""
+            except Exception as exc:       # nur Zusatzinfo: nie die Seite stören
+                log.info("Ankunft für %s %s nicht berechenbar: %s", linie, pt, exc)
+            _ANKUNFT[(halt_id, linie, pt)] = (time.monotonic(), text)
+    finally:
+        with _ankunft_lock:
+            _ankunft_laeuft = False
+
+
+def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
+    """Tafel-Züge mit "heim": Ankunft am Ziel (HH:MM), "" = keine Weiterfahrt, None = wird berechnet."""
+    global _ankunft_laeuft
+    jetzt_m = time.monotonic()
+    v = Verbindung.aus_dict(p[richtung]) if p.get(richtung) else None
+    zuege, offen = [], []
+    for z in t["zuege"]:
+        z = dict(z)
+        alt = _ANKUNFT.get((t["halt_id"], z["linie"], z["pt"]))
+        if z.get("deiner") and v:
+            z["heim"] = f"{v.an:%H:%M}"
+        elif z.get("ausfall"):
+            z["heim"] = ""
+        elif alt and jetzt_m - alt[0] < _ANKUNFT_MERKEN_S:
+            z["heim"] = alt[1]
+        else:
+            z["heim"] = None
+            offen.append((z["linie"], z["pt"]))
+        zuege.append(z)
+    if offen:
+        with _ankunft_lock:
+            starten = not _ankunft_laeuft
+            _ankunft_laeuft = True
+        if starten:
+            threading.Thread(target=_ankuenfte_rechnen, args=(d, richtung, t["halt_id"], offen),
+                             daemon=True).start()
+    return zuege
+
+
 def _tafel(p: dict, d, richtung: str, jetzt: datetime) -> Optional[dict]:
     t = _tafel_roh(p, d, richtung, jetzt)
     if not t:
         return None      # zu alt, lieber nichts zeigen
-    return {**t, "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M"),
+    return {**t, "zuege": _mit_ankunft(t, p, d, richtung),
+            "ziel_name": "Gelnhausen" if richtung == "rueck" else "Campus",
+            "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M"),
             "fehler": (p.get("zug_fehler") or {}).get(richtung, "")}
 
 

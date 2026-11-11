@@ -109,6 +109,8 @@
   .zchip span { display: block; font-size: 11px; color: var(--grau); font-weight: 600; }
   .zchip span.warn, .zchip span.spaet { color: var(--orange-text); }
   .karte.erledigt { opacity: .65; }
+  .tafel .wohin .heim { color: var(--text, #14161c); font-size: 13px; }
+  .tafel .wohin .heim.keine { color: var(--grau); }
   .akzent .schritt { font-size: 20px; font-weight: 700; margin-top: 2px; }
   .meldungen { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
   .meldungen li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; font-size: 14px; }
@@ -373,7 +375,10 @@ function tafelHtml(t, datum, richtung) {
     ${t.fehler ? `<div class="lage warn">${esc(t.fehler)}</div>` : ""}
     ${t.zuege.map(z => `<div class="tafel-zeile">
       <span class="t ${z.plus > 0 || z.ausfall ? "spaet" : ""}">${esc(z.ist)}${z.plus ? `<s>${esc(z.plan)}</s>` : ""}</span>
-      <span class="wohin"><b>${esc(z.linie)}</b>${z.gleis ? ` · Gl. ${esc(z.gleis)}` : ""}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span></span>
+      <span class="wohin"><b>${esc(z.linie)}</b>${z.gleis ? ` · Gl. ${esc(z.gleis)}` : ""}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span>${
+        z.ausfall ? "" : z.heim ? `<span class="heim">an ${esc(t.ziel_name)} <b>${esc(z.heim)}</b></span>`
+          : z.heim === "" ? `<span class="heim keine">keine Weiterfahrt gefunden</span>`
+          : `<span class="heim keine">Ankunft wird berechnet …</span>`}</span>
       ${z.ausfall ? `<span class="lage warn">fällt aus</span>` : z.deiner ? `<span class="chip ueberwacht">dein Zug</span>` :
         `<button type="button" class="knopf zweit klein" data-zug="${esc(z.pt)}" data-linie="${esc(z.linie)}"
           data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Nehme ich</button>`}
@@ -644,7 +649,7 @@ function meldungenZeigen(liste) {
       <span><b>${esc(m.titel)}</b><span class="text">${esc(m.text)}</span></span></li>`).join(""));
 }
 
-let geladenUm = 0;
+let geladenUm = 0, tafelWarten = 0;
 async function laden() {
   try {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
@@ -673,6 +678,8 @@ async function laden() {
     akzent(d); tage(d); anpassen(d); meldungenZeigen(d.meldungen || []);
     const wartend = JSON.stringify(d.tage).includes('"wird_gewaehlt":true') || d.anpassen.tage.some(t => t.ausstehend);
     if (wartend && schnell > 0) { schnell--; planen(3000); return; }
+    if (JSON.stringify(d.tage).includes('"heim":null') && tafelWarten < 12) { tafelWarten++; planen(4000); return; }
+    tafelWarten = 0;
   } catch (e) {
     // Daten sind da, aber die Anzeige ist gescheitert: ehrlich sagen statt "nicht erreichbar"
     console.error(e);
