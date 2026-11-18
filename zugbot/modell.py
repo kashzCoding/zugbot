@@ -108,6 +108,7 @@ class Abschnitt:
     # Halte unterwegs (Namen), für die Babenhausen/Groß-Umstadt-Prüfung
     zwischenhalte: list[Halt] = field(default_factory=list)
     quelle: str = ""          # woher die Echtzeit stammt: "DB" oder "" (Transitous/keine)
+    db_id_ab: str = ""        # Eintrag in der DB-Tafel am Abfahrtsbahnhof (für "dein Zug" auf der Tafel)
 
     @property
     def ab(self) -> datetime:

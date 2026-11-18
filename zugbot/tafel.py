@@ -12,7 +12,6 @@ from typing import Optional
 from . import bewertung, texte
 from .bewertung import Regeln
 from .modell import Verbindung
-from .planer import _nummer
 
 AB_MINUTEN = 90     # ohne Wunsch erst so kurz vor dem nächsten Zug
 
@@ -40,11 +39,7 @@ def bauen(v: Verbindung, jetzt: datetime, gleise, regeln: Regeln, e: dict, immer
     if any(bewertung.ist_pflicht_halt(a.nach, regeln) for a in rest):
         ziele += [e["haltestellen"][k]["name"] for k in e["pflicht_ueber"]]
     zuege_tafel = gleise.tafel(eva, frueh, max(naechster.ab, frueh) + timedelta(minutes=40), ziele)
-    # Derselbe Tafeleintrag wie in der Verbindung oben (gleise.waehle), nicht nur
-    # gleiche Minute und Linie: sonst können Gleis und Zeit auseinanderlaufen.
-    deiner = gleise.eintrag_id(eva, naechster)
-    for zt in zuege_tafel:
-        zt["deiner"] = zt["id"] == deiner if deiner else \
-            zt["pt"] == f"{naechster.ab_plan:%y%m%d%H%M}" and _nummer(zt["linie"]) == _nummer(naechster.linie)
+    # "dein Zug" markiert erst das Dashboard (web.ist_deiner), aus dem aktuellen
+    # Plan: nach "Nehme ich" ist die gemerkte Tafel sonst veraltet.
     return {"bahnhof": texte.kurzname(naechster.von.name), "halt_id": naechster.von.id,
             "stand": jetzt.isoformat(), "zuege": zuege_tafel[:8]}

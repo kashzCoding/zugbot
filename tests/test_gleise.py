@@ -131,7 +131,7 @@ def test_gegenrichtung_gleiche_minute_nicht_verwechseln(db):
     v = zug(ab)
     g.ergaenzen(v)
     assert v.fahrten[0].gleis_ab == "2"
-    assert g.eintrag_id(eva, v.fahrten[0]) == "ffm"
+    assert v.fahrten[0].db_id_ab == "ffm"
 
 
 def test_doppelter_eintrag_der_mit_aenderung_gilt_ueberall(db):
@@ -152,4 +152,6 @@ def test_doppelter_eintrag_der_mit_aenderung_gilt_ueberall(db):
     assert (a.gleis_ab, a.verspaetung_ab) == ("9", 11)
     zeilen = g.tafel(eva, ab - timedelta(minutes=5), ab + timedelta(minutes=30), ["Frankfurt (Main) Hauptbahnhof"])
     assert [(z["id"], z["gleis"], z["plus"]) for z in zeilen] == [("b", "9", 11)]
-    assert g.eintrag_id(eva, a) == "b"
+    assert a.db_id_ab == "b"
+    from zugbot.web import ist_deiner
+    assert [z["id"] for z in zeilen if ist_deiner(z, a)] == ["b"]

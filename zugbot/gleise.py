@@ -167,10 +167,6 @@ class DbGleise:
         gewaehlt = self.waehle([s.find(art) for s in kandidaten])
         return next((s for s in kandidaten if s.find(art) is gewaehlt), None)
 
-    def eintrag_id(self, eva: str, a: Abschnitt) -> Optional[str]:
-        """Id des Tafeleintrags, der zur Abfahrt von a gehört (für "dein Zug")."""
-        s = self._finde_eintrag(eva, a.ab_plan, "dp", a.linie, a.nach.name)
-        return s.get("id") if s is not None else None
 
     def tafel(self, eva: str, von: datetime, bis: datetime, ziele: list[str]) -> list[dict]:
         """Abfahrten an einem Bahnhof, nur Nahverkehr, der über einen der Ziel-
@@ -228,8 +224,10 @@ class DbGleise:
     def _abschnitt(self, a: Abschnitt) -> None:
         eva_ab = self.eva.get(a.von.basis)
         if eva_ab:
-            dp = self._finde(eva_ab, a.ab_plan, "dp", a.linie, a.nach.name)
+            s = self._finde_eintrag(eva_ab, a.ab_plan, "dp", a.linie, a.nach.name)
+            dp = s.find("dp") if s is not None else None
             if dp is not None:
+                a.db_id_ab = s.get("id") or ""
                 a.gleis_ab_plan = dp.get("pp") or a.gleis_ab_plan
                 a.gleis_ab = dp.get("cp") or dp.get("pp") or a.gleis_ab
                 a.ab_ist = _db_zeit(dp.get("ct")) or (a.ab_plan if _nah(a.ab_plan) else a.ab_ist)

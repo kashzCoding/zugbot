@@ -105,7 +105,7 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
     for a in fahrten:
         status, art = _status(a, jetzt)
         abschnitte.append({
-            "linie": a.linie, "richtung": a.richtung, "steig": a.ist_steig,
+            "linie": a.linie, "richtung": texte.kurzname(a.richtung), "steig": a.ist_steig,
             "status": status, "status_art": art, "fahrzeit": f"{a.fahrzeit_min} min",
         })
     halte = []
@@ -292,14 +292,9 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
     # "Nehme ich" muss die Markierung sofort wechseln.
     mein = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
                  and a.von.basis == basis_id(t["halt_id"])), None) if v else None
-    # Gleiche Minute und Linie, und bei mehreren der Eintrag mit deinem Gleis
-    # (dasselbe Gleis wie oben in der Verbindung, siehe gleise.waehle)
-    passend = [z for z in t["zuege"] if mein and z["pt"] == f"{mein.ab_plan:%y%m%d%H%M}"
-               and _nummer(z["linie"]) == _nummer(mein.linie)]
-    deiner = next((z for z in passend if z.get("gleis") == mein.gleis_ab), passend[0] if passend else None)
     zuege, offen = [], []
     for z in t["zuege"]:
-        z = dict(z, deiner=z is deiner)
+        z = dict(z, deiner=ist_deiner(z, mein))
         alt = _ANKUNFT.get((t["halt_id"], z["linie"], z["pt"]))
         if z.get("deiner") and v:
             z["heim"] = f"{v.an:%H:%M}"
@@ -320,6 +315,18 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
             threading.Thread(target=_ankuenfte_rechnen, args=(d, richtung, t["halt_id"], offen),
                              daemon=True).start()
     return zuege
+
+
+def ist_deiner(z: dict, mein) -> bool:
+    """Die einzige Stelle, die "dein Zug" auf der Tafel festlegt. Mit DB-Daten
+    über denselben Tafeleintrag, den die Verbindung nutzt (gleise.waehle), dann
+    stimmen Gleis und Zeit oben und in der Tafel immer überein. Ohne DB-Eintrag
+    (z. B. ohne Schlüssel) nach Minute und Linie."""
+    if mein is None:
+        return False
+    if mein.db_id_ab and z.get("id"):
+        return z["id"] == mein.db_id_ab
+    return z["pt"] == f"{mein.ab_plan:%y%m%d%H%M}" and _nummer(z["linie"]) == _nummer(mein.linie)
 
 
 def _vergleich(heim: Optional[str], v: Optional[Verbindung]) -> str:

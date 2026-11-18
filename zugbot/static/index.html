@@ -136,6 +136,8 @@
   .tafel-zeile .t.spaet { color: var(--orange-text); }
   .tafel-zeile.deiner { padding: 4px 0; color: var(--grau); }
   .tafel-zeile .wohin span.gl, .tafel .wohin .heim span.vgl { display: inline; font-size: inherit; overflow: visible; }
+  .tafel-zeile .wohin span.zug { font-size: 14px; color: var(--text); }
+  .tafel-unter { margin: -6px 0 4px; }
   .tafel-zeile .gl-neu, .chip.warn { color: var(--orange-text); font-weight: 700; }
   .tafel .wohin .heim { white-space: normal; }      /* Vergleich darf umbrechen, nie abgeschnitten */
   .tafel .wohin .heim .vgl { font-weight: 700; color: var(--grau); white-space: nowrap; }
@@ -226,6 +228,10 @@
   .meldung { font-size: 13px; font-weight: 600; min-height: 1em; }
   .meldung.fehler { color: var(--orange-text); }
   .meldung.ok { color: var(--gruen); }
+  #a-mehr summary { font-weight: 700; color: var(--akzent); justify-content: flex-start; gap: 6px; }
+  #a-mehr summary::after { margin-bottom: 2px; }
+  #a-mehr .formular { margin-top: 10px; }
+  .eigene-liste:empty { display: none; }
   .eigene-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: var(--grau); }
 
   .stoerung { background: var(--orange-flaeche); color: var(--orange-text); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; }
@@ -243,6 +249,33 @@
   <div class="stoerung" id="stoerung" role="status" hidden></div>
   <section class="akzent" id="akzent" aria-live="polite"></section>
   <div class="reiter" role="tablist" id="reiter"></div>
+  <!-- Zeiten anpassen: erscheint direkt unter den Tagen-Reitern, wenn man "ändern" tippt -->
+  <section class="karte" id="anpassen" hidden>
+    <div class="zeile-kopf"><h2>Zeiten anpassen</h2><button class="link" id="a-schliessen" type="button">Schließen</button></div>
+    <div class="formular">
+      <label>Tag <select id="a-tag"></select></label>
+      <div class="klein" id="a-standard"></div>
+      <label>Da sein um <input type="time" id="a-an"></label>
+      <div class="schnell" id="a-schnell-an" aria-label="Schnellwahl für Da sein um"></div>
+      <label>Zurück ab <input type="time" id="a-rueck"></label>
+      <div class="schnell" id="a-schnell-rueck" aria-label="Schnellwahl für Zurück ab"></div>
+      <details id="a-mehr">
+        <summary class="klein">Mehr: spätestens zu Hause, Campus</summary>
+        <div class="formular">
+          <label>Spätestens zu Hause um <input type="time" id="a-heim"></label>
+          <div class="klein">Sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür früher gehen musst.</div>
+          <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
+        </div>
+      </details>
+      <div class="klein">Leer heißt wie im Stundenplan. Bei „Da sein um“ bist du 5 min vorher am Halt.</div>
+      <div class="knoepfe">
+        <button class="knopf primaer" id="a-speichern" type="button">Speichern</button>
+        <button class="knopf zweit" id="a-zurueck" type="button">Zurücksetzen</button>
+      </div>
+      <div class="meldung" id="a-meldung" role="status"></div>
+      <ul class="eigene-liste" id="a-liste"></ul>
+    </div>
+  </section>
   <div class="tage" id="tage"></div>
   <section class="karte" id="meldungen" hidden>
     <details>
@@ -250,28 +283,7 @@
       <ul class="meldungen" id="m-liste"></ul>
     </details>
   </section>
-  <section class="karte" id="anpassen">
-    <details id="anpassen-auf">
-      <summary><h2>Zeiten anpassen</h2></summary>
-      <div class="formular">
-        <label>Tag <select id="a-tag"></select></label>
-        <div class="klein" id="a-standard"></div>
-        <label>Da sein um <input type="time" id="a-an"></label>
-        <div class="schnell" id="a-schnell-an" aria-label="Schnellwahl für Da sein um"></div>
-        <label>Zurück ab <input type="time" id="a-rueck"></label>
-        <div class="schnell" id="a-schnell-rueck" aria-label="Schnellwahl für Zurück ab"></div>
-        <label>Spätestens zu Hause um <input type="time" id="a-heim"></label>
-        <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
-        <div class="klein">„Da sein um“ zählt wie ein Vorlesungsbeginn, du bist also 5 min vorher am Halt. „Zu Hause um“ sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür früher gehen musst. Leere Felder bleiben wie im Stundenplan.</div>
-        <div class="knoepfe">
-          <button class="knopf primaer" id="a-speichern" type="button">Speichern</button>
-          <button class="knopf zweit" id="a-zurueck" type="button">Zurücksetzen</button>
-        </div>
-        <div class="meldung" id="a-meldung" role="status"></div>
-        <ul class="eigene-liste" id="a-liste"></ul>
-      </div>
-    </details>
-  </section>
+  <div class="fuss"><button class="link" type="button" data-aendern="">Zeiten für andere Tage anpassen</button></div>
   <footer class="fuss">
     <span id="stand"></span><br>
     Fahrplandaten: <a href="https://transitous.org/sources/">Transitous und Quellen</a>,
@@ -387,9 +399,11 @@ function tafelZeile(t, z, datum, richtung) {
   if (z.deiner) return `<div class="tafel-zeile deiner">${zeit}<span class="wohin"><b>${esc(z.linie)}</b>${gleis}</span>
     <span class="chip ueberwacht">dein Zug</span></div>`;
   const vgl = z.vergleich ? ` · <span class="vgl ${z.vergleich.includes("früher") ? "frueher" : ""}">${esc(z.vergleich)}</span>` : "";
+  // Zwei Zeilen: Zug, Gleis, Endhalt / Ankunft am Ziel. "über Gelnhausen" fehlt mit
+  // Absicht: auf der Tafel stehen ohnehin nur Züge, die dorthin fahren.
   return `<div class="tafel-zeile">${zeit}
-    <span class="wohin"><b>${esc(z.linie)}</b>${gleis}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span>${
-      z.ausfall ? "" : z.heim ? `<span class="heim">an ${esc(t.ziel_name)} <b>${esc(z.heim)}</b>${vgl}</span>`
+    <span class="wohin"><span class="zug"><b>${esc(z.linie)}</b>${gleis}${z.ziel ? ` · ${esc(texte_kurz(z.ziel))}` : ""}</span>${
+      z.ausfall ? "" : z.heim ? `<span class="heim">an <b>${esc(z.heim)}</b>${vgl}</span>`
         : z.heim === "" ? `<span class="heim keine">keine Weiterfahrt gefunden</span>`
         : `<span class="heim keine">Ankunft wird berechnet …</span>`}</span>
     ${z.ausfall ? `<span class="lage warn">fällt aus</span>` :
@@ -397,14 +411,17 @@ function tafelZeile(t, z, datum, richtung) {
         data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Nehme ich</button>`}
   </div>`;
 }
+// DB schreibt "Frankfurt(Main)Hbf", "Bad Soden-Salmünster"; kurz halten
+const texte_kurz = n => n.replace(/\s*\(Main\)\s*/, " ").replace("Hauptbahnhof", "Hbf").trim();
 function tafelHtml(t, datum, richtung) {
   if (!t || !t.zuege.length) return "";
   const key = `${datum}:${richtung}`, alle = tafelMehr.has(key);
   const zeigen = alle ? t.zuege : t.zuege.slice(0, TAFEL_ZEILEN), rest = t.zuege.length - zeigen.length;
   return `<div class="tafel"><h3>Abfahrten ${esc(t.bahnhof)} <span class="klein">· Stand ${esc(t.stand)}</span></h3>
+    <div class="klein tafel-unter">„an“ = Ankunft in ${esc(t.ziel_name)}</div>
     ${t.fehler ? `<div class="lage warn">${esc(t.fehler)}</div>` : ""}
     ${zeigen.map(z => tafelZeile(t, z, datum, richtung)).join("")}
-    ${rest > 0 ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">${rest} weitere Züge</button>` :
+    ${rest > 0 ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">${rest === 1 ? "1 weiterer Zug" : `${rest} weitere Züge`}</button>` :
       alle && t.zuege.length > TAFEL_ZEILEN ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">Weniger</button>` : ""}</div>`;
 }
 
@@ -524,6 +541,7 @@ function felderFuellen() {
   document.getElementById("a-rueck").value = e.rueck_ab || "";
   document.getElementById("a-heim").value = e.heim_bis || "";
   document.getElementById("a-campus").value = e.campus || "";
+  document.getElementById("a-mehr").open = !!(e.heim_bis || e.campus);   // Seltenes nur zeigen, wenn gesetzt
   infoAnpassen();
   meldung("", "");
 }
@@ -586,9 +604,10 @@ document.addEventListener("click", async ev => {
   }
   const a = ev.target.closest("[data-aendern]");
   if (a) {
-    const det = document.getElementById("anpassen-auf");
-    det.open = true;
-    document.getElementById("a-tag").value = a.dataset.aendern;
+    const form = document.getElementById("anpassen");
+    form.hidden = false;
+    const tag = a.dataset.aendern || (daten && daten.tage[tagIndex] && daten.tage[tagIndex].datum);
+    if (tag && [...document.getElementById("a-tag").options].some(o => o.value === tag)) document.getElementById("a-tag").value = tag;
     felderFuellen();
     document.getElementById("anpassen").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
     return;
@@ -682,6 +701,7 @@ function geaendert() { infoAnpassen(); meldung("Noch nicht gespeichert", ""); }
 ["a-an", "a-rueck", "a-heim", "a-campus"].forEach(id => document.getElementById(id).addEventListener("input", geaendert));
 document.getElementById("a-speichern").addEventListener("click", () => anpassenSenden(false));
 document.getElementById("a-zurueck").addEventListener("click", () => anpassenSenden(true));
+document.getElementById("a-schliessen").addEventListener("click", () => { document.getElementById("anpassen").hidden = true; });
 try { const t = sessionStorage.getItem("zugbot-tag"); if (t !== null) tagIndex = +t; } catch (e) {}
 
 /* Nach einer Änderung kurz öfter nachfragen, bis der Dienst sie übernommen hat */

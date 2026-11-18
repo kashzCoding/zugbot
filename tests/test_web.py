@@ -146,3 +146,14 @@ def test_nebenfahrt_zugeklappt_bis_offen(wunschdatei):
     assert len(zu) == 1 and "optionen" not in zu[0] and zu[0]["kurz"]["ab"]   # genau eine eingeklappt
     offen = frozenset({f"{morgen.isoformat()}:{zu[0]['richtung']}"})
     assert all(not f["zu"] and f["optionen"] for f in web.dashboard_daten(offen)["tage"][1]["fahrten"])
+
+
+def test_vergleich_zur_eigenen_ankunft():
+    from zugbot.modell import TZ, Abschnitt, Halt, Teil, Verbindung
+    an = datetime(2026, 11, 17, 16, 31, tzinfo=TZ)
+    a = Abschnitt(Halt("1", "Frankfurt Hbf"), Halt("2", "Gelnhausen"), an - timedelta(minutes=30), an, linie="RE 50")
+    v = Verbindung([Teil([a])], "rueck", "lichtwiese")
+    assert web._vergleich("17:08", v) == "+37 min"
+    assert web._vergleich("16:23", v) == "8 min früher"
+    assert web._vergleich("16:31", v) == "gleich"
+    assert web._vergleich("", v) == "" and web._vergleich(None, v) == ""
