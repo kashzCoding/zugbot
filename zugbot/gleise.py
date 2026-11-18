@@ -11,8 +11,13 @@ gar keine Echtzeit und 5 zu kleine Verspätungen; die DB hatte alle. Ein
 Tafeleintrag ohne ct heißt bei der DB: pünktlich.
 
 Zuordnung eines Zugs zu einem Tafeleintrag: gleicher Bahnhof (EVA-Nummer aus
-einstellungen.yaml), gleiche Planzeit (Minute genau) und, falls angegeben,
-gleiche Liniennummer (RE 50 -> "50", S6 -> "6").
+einstellungen.yaml), gleiche Planzeit (Minute genau), falls angegeben gleiche
+Liniennummer (RE 50 -> "50", S6 -> "6") und die richtige Richtung. Die Richtung
+ist nötig, weil z. B. in Darmstadt Hbf um 00:30 eine RB 68 nach Frankfurt und
+eine nach Heidelberg fährt, auf verschiedenen Gleisen. Manche Züge stehen auch
+doppelt in der Tafel, und die DB trägt Änderungen nur bei einem Eintrag ein.
+Dann gilt der Eintrag mit Änderungen. Verbindung und Abfahrtstafel nutzen
+dieselbe Auswahl (waehle), damit sie sich nie widersprechen.
 
 Ohne DB_CLIENT_ID/DB_API_KEY in der .env tut dieses Modul nichts.
 """
@@ -101,6 +106,14 @@ class DbGleise:
         return None
 
     # --- Zuordnung ---
+    @staticmethod
+    def waehle(kandidaten: list[ET.Element]) -> Optional[ET.Element]:
+        """Von mehreren passenden Einträgen den mit den meisten Änderungen
+        (Ausfall, Zeit, Gleis); bei Gleichstand den ersten."""
+        if not kandidaten:
+            return None
+        return max(kandidaten, key=lambda e: sum(bool(e.get(k)) for k in ("cs", "ct", "cp")))
+
     def _eintraege(self, eva: str, zeit: datetime) -> dict[str, ET.Element]:
         """Alle Tafeleinträge (s-Elemente) der Stunde, mit eingemischten Änderungen."""
         plan = self._xml(f"/plan/{eva}/{zeit:%y%m%d}/{zeit:%H}", PLAN_CACHE_S)
@@ -127,9 +140,18 @@ class DbGleise:
         m = re.search(r"(\d+)\s*$", re.sub(r"\s*\(.*?\)\s*$", "", linie or ""))
         return m.group(1) if m else ""
 
-    def _finde(self, eva: str, zeit: datetime, art: str, linie: str) -> Optional[ET.Element]:
+    def _finde(self, eva: str, zeit: datetime, art: str, linie: str,
+               anderes_ende: str = "") -> Optional[ET.Element]:
+        """art "dp": anderes_ende ist dein Ausstieg, er muss auf dem weiteren Weg
+        liegen. art "ar": dein Einstieg, er muss auf dem bisherigen Weg liegen."""
+        treffer = self._finde_eintrag(eva, zeit, art, linie, anderes_ende)
+        return treffer.find(art) if treffer is not None else None
+
+    def _finde_eintrag(self, eva: str, zeit: datetime, art: str, linie: str,
+                       anderes_ende: str = "") -> Optional[ET.Element]:
         pt = zeit.strftime("%y%m%d%H%M")
         nummer = self._liniennummer(linie)
+        kandidaten = []
         for s in self._eintraege(eva, zeit).values():
             e = s.find(art)
             if e is None or e.get("pt") != pt:
@@ -138,21 +160,25 @@ class DbGleise:
             # vergleichen. Wichtig, weil z. B. RE50 und RB46 in Gelnhausen beide 06:37 fahren.
             if nummer and e.get("l") and self._liniennummer(e.get("l")) != nummer:
                 continue
-            return e
-        return None
+            pfad = _pfad(e)
+            if anderes_ende and pfad and not any(_gleicher_halt(anderes_ende, h) for h in pfad):
+                continue      # Gegenrichtung
+            kandidaten.append(s)
+        gewaehlt = self.waehle([s.find(art) for s in kandidaten])
+        return next((s for s in kandidaten if s.find(art) is gewaehlt), None)
+
+    def eintrag_id(self, eva: str, a: Abschnitt) -> Optional[str]:
+        """Id des Tafeleintrags, der zur Abfahrt von a gehört (für "dein Zug")."""
+        s = self._finde_eintrag(eva, a.ab_plan, "dp", a.linie, a.nach.name)
+        return s.get("id") if s is not None else None
 
     def tafel(self, eva: str, von: datetime, bis: datetime, ziele: list[str]) -> list[dict]:
         """Abfahrten an einem Bahnhof, nur Nahverkehr, der über einen der Ziel-
         bahnhöfe fährt (Namen wie bei Transitous). Mit Echtzeit."""
-        from .bewertung import _norm
-
-        ziel_n = [_norm(z) for z in ziele]
-
         def faehrt_hin(halt: str) -> bool:
-            h = _norm(halt)
-            return any(h.startswith(z) or z.startswith(h) for z in ziel_n if h and z)
+            return any(_gleicher_halt(z, halt) for z in ziele)
 
-        zeilen, gesehen = [], set()
+        kandidaten: dict[tuple, list[tuple[ET.Element, str]]] = {}
         stunde = von.replace(minute=0, second=0, microsecond=0)
         while stunde <= bis:
             for s in self._eintraege(eva, stunde).values():
@@ -166,21 +192,28 @@ class DbGleise:
                 ist = _db_zeit(dp.get("ct")) or plan
                 if ist < von or plan > bis:
                     continue
-                pfad = (dp.get("cpth") or dp.get("ppth") or "").split("|")
-                ueber = next((h for h in pfad if faehrt_hin(h)), None)
+                ueber = next((h for h in _pfad(dp) if faehrt_hin(h)), None)
                 if ueber is None:
                     continue
                 linie = _linie(kat, dp.get("l") or "")
-                if (dp.get("pt"), linie) in gesehen:
-                    continue
-                gesehen.add((dp.get("pt"), linie))
-                zeilen.append({
-                    "pt": dp.get("pt"), "plan": f"{plan:%H:%M}", "ist": f"{ist:%H:%M}",
-                    "plus": round((ist - plan).total_seconds() / 60), "ausfall": dp.get("cs") == "c",
-                    "linie": linie, "ziel": pfad[-1] if pfad else "", "ueber": ueber,
-                    "gleis": dp.get("cp") or dp.get("pp") or "",
-                })
+                # Doppelte Einträge (gleiche Minute, Linie, Ziel): einer reicht, wie in _finde gewählt
+                schluessel = (dp.get("pt"), linie, (_pfad(dp) or [""])[-1])
+                kandidaten.setdefault(schluessel, []).append((s, ueber))
             stunde += timedelta(hours=1)
+        zeilen = []
+        for liste in kandidaten.values():
+            dp = self.waehle([s.find("dp") for s, _ in liste])
+            s, ueber = next((s, u) for s, u in liste if s.find("dp") is dp)
+            plan = _db_zeit(dp.get("pt"))
+            ist = _db_zeit(dp.get("ct")) or plan
+            pfad = _pfad(dp)
+            zeilen.append({
+                "id": s.get("id"), "pt": dp.get("pt"), "plan": f"{plan:%H:%M}", "ist": f"{ist:%H:%M}",
+                "plus": round((ist - plan).total_seconds() / 60), "ausfall": dp.get("cs") == "c",
+                "linie": linie_von(s, dp), "ziel": pfad[-1] if pfad else "", "ueber": ueber,
+                "gleis": dp.get("cp") or dp.get("pp") or "",
+                "gleis_plan": dp.get("pp") or "",
+            })
         return sorted(zeilen, key=lambda z: (z["ist"], z["plan"]))
 
     def ergaenzen(self, v: Optional[Verbindung]) -> None:
@@ -195,7 +228,7 @@ class DbGleise:
     def _abschnitt(self, a: Abschnitt) -> None:
         eva_ab = self.eva.get(a.von.basis)
         if eva_ab:
-            dp = self._finde(eva_ab, a.ab_plan, "dp", a.linie)
+            dp = self._finde(eva_ab, a.ab_plan, "dp", a.linie, a.nach.name)
             if dp is not None:
                 a.gleis_ab_plan = dp.get("pp") or a.gleis_ab_plan
                 a.gleis_ab = dp.get("cp") or dp.get("pp") or a.gleis_ab
@@ -205,7 +238,7 @@ class DbGleise:
         an_db = None
         eva_an = self.eva.get(a.nach.basis)
         if eva_an:
-            ar = self._finde(eva_an, a.an_plan, "ar", a.linie)
+            ar = self._finde(eva_an, a.an_plan, "ar", a.linie, a.von.name)
             if ar is not None:
                 a.gleis_an_plan = ar.get("pp") or a.gleis_an_plan
                 a.gleis_an = ar.get("cp") or ar.get("pp") or a.gleis_an
@@ -219,6 +252,24 @@ class DbGleise:
             mindestens = a.an_plan + (a.ab_ist - a.ab_plan) - timedelta(minutes=3)  # etwas Aufholen
             if a.an_ist is None or a.an_ist < mindestens:
                 a.an_ist = max(mindestens, a.an_plan)
+
+
+def _pfad(e: ET.Element) -> list[str]:
+    """Halte vor (ar) bzw. nach (dp) diesem Bahnhof, mit Änderungen."""
+    pfad = e.get("cpth") or e.get("ppth") or ""
+    return pfad.split("|") if pfad else []
+
+
+def _gleicher_halt(a: str, b: str) -> bool:
+    """'Gelnhausen Bahnhof' (Transitous) und 'Gelnhausen' (DB) sind derselbe Halt."""
+    from .bewertung import _norm
+    x, y = _norm(a), _norm(b)
+    return bool(x and y) and (x.startswith(y) or y.startswith(x))
+
+
+def linie_von(s: ET.Element, dp: ET.Element) -> str:
+    tl = s.find("tl")
+    return _linie(tl.get("c", "") if tl is not None else "", dp.get("l") or "")
 
 
 def _db_zeit(wert: Optional[str]) -> Optional[datetime]:

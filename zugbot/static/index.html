@@ -134,6 +134,13 @@
   .tafel-zeile .t { font-weight: 800; }
   .tafel-zeile .t s { display: block; font-size: 11px; font-weight: 500; color: var(--grau); }
   .tafel-zeile .t.spaet { color: var(--orange-text); }
+  .tafel-zeile.deiner { padding: 4px 0; color: var(--grau); }
+  .tafel-zeile .wohin span.gl, .tafel .wohin .heim span.vgl { display: inline; font-size: inherit; overflow: visible; }
+  .tafel-zeile .gl-neu, .chip.warn { color: var(--orange-text); font-weight: 700; }
+  .tafel .wohin .heim { white-space: normal; }      /* Vergleich darf umbrechen, nie abgeschnitten */
+  .tafel .wohin .heim .vgl { font-weight: 700; color: var(--grau); white-space: nowrap; }
+  .tafel .wohin .heim .vgl.frueher { color: var(--gruen); }
+  .tafel > .link { margin-top: 8px; }
   .tafel-zeile .wohin { min-width: 0; }
   .tafel-zeile .wohin b { font-weight: 700; }
   .tafel-zeile .wohin span { display: block; font-size: 12px; color: var(--grau); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -212,7 +219,9 @@
   .formular input[type="time"]::-webkit-datetime-edit { padding: 0; }
   .zwei { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
   .schnell { display: flex; gap: 6px; flex-wrap: wrap; }
-  .schnell button { border: 0; background: var(--chip); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .schnell { margin-top: -6px; }
+  .schnell button { border: 0; background: var(--chip); color: var(--text); border-radius: 999px; padding: 7px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .schnell button[aria-pressed="true"] { background: var(--akzent); color: #fff; }
   .knoepfe { display: flex; gap: 8px; flex-wrap: wrap; }
   .meldung { font-size: 13px; font-weight: 600; min-height: 1em; }
   .meldung.fehler { color: var(--orange-text); }
@@ -247,12 +256,11 @@
       <div class="formular">
         <label>Tag <select id="a-tag"></select></label>
         <div class="klein" id="a-standard"></div>
-        <div class="zwei">
-          <label>Da sein um <input type="time" id="a-an"></label>
-          <label>Zurück ab <input type="time" id="a-rueck"></label>
-        </div>
+        <label>Da sein um <input type="time" id="a-an"></label>
+        <div class="schnell" id="a-schnell-an" aria-label="Schnellwahl für Da sein um"></div>
+        <label>Zurück ab <input type="time" id="a-rueck"></label>
+        <div class="schnell" id="a-schnell-rueck" aria-label="Schnellwahl für Zurück ab"></div>
         <label>Spätestens zu Hause um <input type="time" id="a-heim"></label>
-        <div class="schnell" id="a-schnell" aria-label="Schnellwahl für Da sein um"></div>
         <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
         <div class="klein">„Da sein um“ zählt wie ein Vorlesungsbeginn, du bist also 5 min vorher am Halt. „Zu Hause um“ sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür früher gehen musst. Leere Felder bleiben wie im Stundenplan.</div>
         <div class="knoepfe">
@@ -333,10 +341,11 @@ function strahl(o) {
     const stil = `--oben:${vor ? farbe(vor) : "transparent"};--unten:${nach ? farbe(nach) : "transparent"};--rand:${farbe(nach || vor)}`;
     let zeit;
     if (h.ziel) zeit = `<span class="${h.an_spaet ? "spaet" : ""}">${esc(h.an)}</span>`;
-    else zeit = (h.an ? `<small class="${h.an_spaet ? "spaet" : ""}">an ${esc(h.an)}</small>` : "")
-      + `<span class="${h.ab_spaet ? "spaet" : ""}">${esc(h.ab)}</span>` + (h.ab_alt ? `<s>${esc(h.ab_alt)}</s>` : "");
-    const unter = [h.gleis ? `<span class="chip">${esc(h.gleis)}</span>` : "",
-                   h.umstieg ? `<span class="${h.umstieg_warn ? "warn" : ""}">${esc(h.umstieg)}</span>` : ""].join("");
+    else zeit = `<span class="${h.ab_spaet ? "spaet" : ""}">${esc(h.ab)}</span>` + (h.ab_alt ? `<s>${esc(h.ab_alt)}</s>` : "");
+    // Am Umstieg: Ankunft und Umstiegszeit in einer Zeile neben dem Ort statt drei Zeiten übereinander
+    const umstieg = h.umstieg ? `<span class="${h.umstieg_warn ? "warn" : ""}">${h.an && !h.ziel ?
+      `an <span class="${h.an_spaet ? "warn" : ""}">${esc(h.an)}</span> · ` : ""}${esc(h.umstieg)}</span>` : "";
+    const unter = [h.gleis ? `<span class="chip ${h.gleis_wechsel ? "warn" : ""}">${esc(h.gleis)}</span>` : "", umstieg].join("");
     const st = o.stadt && o.stadt.halt === i && o.stadt.fahrten.length > 1 ? stadtBox(o.stadt) : "";
     html += `<div class="zeit">${zeit}</div><div class="schiene ${h.ziel ? "ziel" : ""}" style="${stil}"><i></i></div>
       <div class="halt-text"><div class="ort">${esc(h.ort)}</div>${unter ? `<div class="unter">${unter}</div>` : ""}${st}</div>`;
@@ -369,20 +378,34 @@ function zugeklappt(f, datum) {
     <span class="mehr">Details</span></button></section>`;
 }
 
+const TAFEL_ZEILEN = 4;   // mehr erst auf Wunsch
+const tafelMehr = new Set();
+function tafelZeile(t, z, datum, richtung) {
+  const gleis = z.gleis ? ` · <span class="gl ${z.gleis_plan && z.gleis !== z.gleis_plan ? "gl-neu" : ""}">Gl. ${esc(z.gleis)}</span>` : "";
+  const zeit = `<span class="t ${z.plus > 0 || z.ausfall ? "spaet" : ""}">${esc(z.ist)}${z.plus ? `<s>${esc(z.plan)}</s>` : ""}</span>`;
+  // Dein Zug steht oben schon ausführlich, hier nur zum Einordnen
+  if (z.deiner) return `<div class="tafel-zeile deiner">${zeit}<span class="wohin"><b>${esc(z.linie)}</b>${gleis}</span>
+    <span class="chip ueberwacht">dein Zug</span></div>`;
+  const vgl = z.vergleich ? ` · <span class="vgl ${z.vergleich.includes("früher") ? "frueher" : ""}">${esc(z.vergleich)}</span>` : "";
+  return `<div class="tafel-zeile">${zeit}
+    <span class="wohin"><b>${esc(z.linie)}</b>${gleis}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span>${
+      z.ausfall ? "" : z.heim ? `<span class="heim">an ${esc(t.ziel_name)} <b>${esc(z.heim)}</b>${vgl}</span>`
+        : z.heim === "" ? `<span class="heim keine">keine Weiterfahrt gefunden</span>`
+        : `<span class="heim keine">Ankunft wird berechnet …</span>`}</span>
+    ${z.ausfall ? `<span class="lage warn">fällt aus</span>` :
+      `<button type="button" class="knopf zweit klein" data-zug="${esc(z.pt)}" data-linie="${esc(z.linie)}"
+        data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Nehme ich</button>`}
+  </div>`;
+}
 function tafelHtml(t, datum, richtung) {
   if (!t || !t.zuege.length) return "";
+  const key = `${datum}:${richtung}`, alle = tafelMehr.has(key);
+  const zeigen = alle ? t.zuege : t.zuege.slice(0, TAFEL_ZEILEN), rest = t.zuege.length - zeigen.length;
   return `<div class="tafel"><h3>Abfahrten ${esc(t.bahnhof)} <span class="klein">· Stand ${esc(t.stand)}</span></h3>
     ${t.fehler ? `<div class="lage warn">${esc(t.fehler)}</div>` : ""}
-    ${t.zuege.map(z => `<div class="tafel-zeile">
-      <span class="t ${z.plus > 0 || z.ausfall ? "spaet" : ""}">${esc(z.ist)}${z.plus ? `<s>${esc(z.plan)}</s>` : ""}</span>
-      <span class="wohin"><b>${esc(z.linie)}</b>${z.gleis ? ` · Gl. ${esc(z.gleis)}` : ""}<span>über ${esc(z.ueber)} → ${esc(z.ziel)}</span>${
-        z.ausfall ? "" : z.heim ? `<span class="heim">an ${esc(t.ziel_name)} <b>${esc(z.heim)}</b></span>`
-          : z.heim === "" ? `<span class="heim keine">keine Weiterfahrt gefunden</span>`
-          : `<span class="heim keine">Ankunft wird berechnet …</span>`}</span>
-      ${z.ausfall ? `<span class="lage warn">fällt aus</span>` : z.deiner ? `<span class="chip ueberwacht">dein Zug</span>` :
-        `<button type="button" class="knopf zweit klein" data-zug="${esc(z.pt)}" data-linie="${esc(z.linie)}"
-          data-datum="${esc(datum)}" data-richtung="${esc(richtung)}">Nehme ich</button>`}
-    </div>`).join("")}</div>`;
+    ${zeigen.map(z => tafelZeile(t, z, datum, richtung)).join("")}
+    ${rest > 0 ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">${rest} weitere Züge</button>` :
+      alle && t.zuege.length > TAFEL_ZEILEN ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">Weniger</button>` : ""}</div>`;
 }
 
 function fahrtKarte(f, datum) {
@@ -474,16 +497,26 @@ function aktuellerTag() {
   return daten && daten.anpassen.tage.find(t => t.datum === document.getElementById("a-tag").value);
 }
 function plusStunden(hhmm, h) {
-  const [s, m] = hhmm.split(":").map(Number), neu = Math.min(23 * 60 + 59, s * 60 + m + h * 60);
+  const [s, m] = hhmm.split(":").map(Number), neu = Math.max(0, Math.min(23 * 60 + 59, s * 60 + m + h * 60));
   return `${String(Math.floor(neu / 60)).padStart(2, "0")}:${String(neu % 60).padStart(2, "0")}`;
+}
+/* Schnellwahl: ein Tipp setzt die Zeit, "Stundenplan" leert das Feld wieder.
+   Leeres Feld = wie im Stundenplan, das zeigt der hervorgehobene Knopf. */
+function schnellwahl(id, feld, basis, stunden) {
+  const el = document.getElementById(id), wert = document.getElementById(feld).value;
+  const knopf = (w, text) => `<button type="button" data-setzen="${feld}|${w}" aria-pressed="${wert === w}">${text}</button>`;
+  // Uhrzeiten statt "+1 h": man sieht sofort, was gilt
+  const html = basis ? [...stunden.filter(h => h < 0), 0, ...stunden.filter(h => h > 0)].map(h =>
+    h ? knopf(plusStunden(basis, h), plusStunden(basis, h)) : knopf("", `Plan ${basis}`)).join("") : "";
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; }
 }
 function infoAnpassen() {
   const t = aktuellerTag();
   document.getElementById("a-standard").textContent = t ? `Stundenplan: ${t.standard}` : "";
-  const schnell = document.getElementById("a-schnell");
-  const html = t && t.beginn ? [1, 2, 3].map(h =>
-    `<button type="button" data-plus="${plusStunden(t.beginn, h)}">da um ${plusStunden(t.beginn, h)}</button>`).join("") : "";
-  if (schnell.dataset.html !== html) { schnell.dataset.html = html; schnell.innerHTML = html; }
+  schnellwahl("a-schnell-an", "a-an", t && t.beginn, [-1, 1, 2]);
+  schnellwahl("a-schnell-rueck", "a-rueck", t && t.ende, [-1, 1, 2]);
+  // Zurücksetzen nur, wenn es für den Tag überhaupt eigene Zeiten gibt
+  document.getElementById("a-zurueck").hidden = !(t && t.eigene);
 }
 function felderFuellen() {
   const e = (aktuellerTag() || {}).eigene || {};
@@ -560,8 +593,20 @@ document.addEventListener("click", async ev => {
     document.getElementById("anpassen").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
     return;
   }
-  const p = ev.target.closest("[data-plus]");
-  if (p) { document.getElementById("a-an").value = p.dataset.plus; return; }
+  const tm = ev.target.closest("[data-tafelmehr]");
+  if (tm) {
+    const k = tm.dataset.tafelmehr;
+    tafelMehr.has(k) ? tafelMehr.delete(k) : tafelMehr.add(k);
+    neuZeichnen();
+    return;
+  }
+  const p = ev.target.closest("[data-setzen]");
+  if (p) {
+    const [feld, wert] = p.dataset.setzen.split("|");
+    document.getElementById(feld).value = wert;
+    geaendert();
+    return;
+  }
   const auf = ev.target.closest("[data-auf]"), zu = ev.target.closest("[data-zu]");
   if (auf || zu) {
     if (auf) { offen.add(auf.dataset.auf); auf.querySelector(".mehr").textContent = "lädt …"; }
@@ -633,6 +678,8 @@ document.addEventListener("keydown", ev => {
 });
 
 document.getElementById("a-tag").addEventListener("change", felderFuellen);
+function geaendert() { infoAnpassen(); meldung("Noch nicht gespeichert", ""); }
+["a-an", "a-rueck", "a-heim", "a-campus"].forEach(id => document.getElementById(id).addEventListener("input", geaendert));
 document.getElementById("a-speichern").addEventListener("click", () => anpassenSenden(false));
 document.getElementById("a-zurueck").addEventListener("click", () => anpassenSenden(true));
 try { const t = sessionStorage.getItem("zugbot-tag"); if (t !== null) tagIndex = +t; } catch (e) {}

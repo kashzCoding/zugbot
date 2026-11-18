@@ -40,8 +40,11 @@ def bauen(v: Verbindung, jetzt: datetime, gleise, regeln: Regeln, e: dict, immer
     if any(bewertung.ist_pflicht_halt(a.nach, regeln) for a in rest):
         ziele += [e["haltestellen"][k]["name"] for k in e["pflicht_ueber"]]
     zuege_tafel = gleise.tafel(eva, frueh, max(naechster.ab, frueh) + timedelta(minutes=40), ziele)
+    # Derselbe Tafeleintrag wie in der Verbindung oben (gleise.waehle), nicht nur
+    # gleiche Minute und Linie: sonst können Gleis und Zeit auseinanderlaufen.
+    deiner = gleise.eintrag_id(eva, naechster)
     for zt in zuege_tafel:
-        zt["deiner"] = zt["pt"] == f"{naechster.ab_plan:%y%m%d%H%M}" and \
-            _nummer(zt["linie"]) == _nummer(naechster.linie)
+        zt["deiner"] = zt["id"] == deiner if deiner else \
+            zt["pt"] == f"{naechster.ab_plan:%y%m%d%H%M}" and _nummer(zt["linie"]) == _nummer(naechster.linie)
     return {"bahnhof": texte.kurzname(naechster.von.name), "halt_id": naechster.von.id,
             "stand": jetzt.isoformat(), "zuege": zuege_tafel[:8]}

@@ -47,8 +47,15 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August"
 
 
 def _gleis_label(a, an: bool = False) -> str:
-    g = a.gleis_an if an else a.gleis_ab
-    return f"{'Steig' if a.ist_steig else 'Gleis'} {g}" if g else ""
+    g, plan = (a.gleis_an, a.gleis_an_plan) if an else (a.gleis_ab, a.gleis_ab_plan)
+    if not g:
+        return ""
+    return f"{'Steig' if a.ist_steig else 'Gleis'} {g}" + (f" statt {plan}" if _gleis_wechsel(a, an) else "")
+
+
+def _gleis_wechsel(a, an: bool = False) -> bool:
+    g, plan = (a.gleis_an, a.gleis_an_plan) if an else (a.gleis_ab, a.gleis_ab_plan)
+    return bool(g and plan and g != plan)
 
 
 def _status(a, jetzt: datetime) -> tuple[str, str]:
@@ -111,7 +118,7 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
             "an_spaet": bool(vorher and vorher.verspaetung_an > 0),
             "ab": f"{a.ab:%H:%M}", "ab_alt": f"{a.ab_plan:%H:%M}" if a.verspaetung_ab > 0 else "",
             "ab_spaet": a.verspaetung_ab > 0 or a.ausfall,
-            "gleis": _gleis_label(a),
+            "gleis": _gleis_label(a), "gleis_wechsel": _gleis_wechsel(a),
             "umstieg": (f"{u.minuten} min Umstieg" + (f" statt {u.minuten_plan}" if u.minuten < u.minuten_plan else ""))
                        if u else "",
             "umstieg_warn": bool(u and (not u.reicht or u.minuten < u.minuten_plan)),
@@ -119,7 +126,8 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
     letzte = fahrten[-1]
     halte.append({"ort": texte.kurzname(letzte.nach.name), "an": f"{letzte.an:%H:%M}",
                   "an_spaet": letzte.verspaetung_an > 0, "ab": "", "ab_alt": "", "ab_spaet": False,
-                  "gleis": _gleis_label(letzte, an=True), "umstieg": "", "umstieg_warn": False, "ziel": True})
+                  "gleis": _gleis_label(letzte, an=True), "gleis_wechsel": _gleis_wechsel(letzte, an=True),
+                  "umstieg": "", "umstieg_warn": False, "ziel": True})
     lage, lage_art = _lage(v, us)
     return {
         "lage": lage, "lage_art": lage_art,
@@ -284,11 +292,14 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
     # "Nehme ich" muss die Markierung sofort wechseln.
     mein = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
                  and a.von.basis == basis_id(t["halt_id"])), None) if v else None
+    # Gleiche Minute und Linie, und bei mehreren der Eintrag mit deinem Gleis
+    # (dasselbe Gleis wie oben in der Verbindung, siehe gleise.waehle)
+    passend = [z for z in t["zuege"] if mein and z["pt"] == f"{mein.ab_plan:%y%m%d%H%M}"
+               and _nummer(z["linie"]) == _nummer(mein.linie)]
+    deiner = next((z for z in passend if z.get("gleis") == mein.gleis_ab), passend[0] if passend else None)
     zuege, offen = [], []
     for z in t["zuege"]:
-        z = dict(z)
-        z["deiner"] = bool(mein) and z["pt"] == f"{mein.ab_plan:%y%m%d%H%M}" and \
-            _nummer(z["linie"]) == _nummer(mein.linie)
+        z = dict(z, deiner=z is deiner)
         alt = _ANKUNFT.get((t["halt_id"], z["linie"], z["pt"]))
         if z.get("deiner") and v:
             z["heim"] = f"{v.an:%H:%M}"
@@ -299,6 +310,7 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
         else:
             z["heim"] = None
             offen.append((z["linie"], z["pt"]))
+        z["vergleich"] = _vergleich(z["heim"], v) if not z["deiner"] else ""
         zuege.append(z)
     if offen:
         with _ankunft_lock:
@@ -308,6 +320,20 @@ def _mit_ankunft(t: dict, p: dict, d, richtung: str) -> list[dict]:
             threading.Thread(target=_ankuenfte_rechnen, args=(d, richtung, t["halt_id"], offen),
                              daemon=True).start()
     return zuege
+
+
+def _vergleich(heim: Optional[str], v: Optional[Verbindung]) -> str:
+    """'+37 min' / '8 min früher' / 'gleich' gegenüber deiner Ankunft."""
+    if not heim or v is None:
+        return ""
+    h, m = map(int, heim.split(":"))
+    an = v.an.replace(hour=h, minute=m, second=0, microsecond=0)
+    if an < v.an - timedelta(hours=12):      # nach Mitternacht
+        an += timedelta(days=1)
+    diff = round((an - v.an.replace(second=0, microsecond=0)).total_seconds() / 60)
+    if diff == 0:
+        return "gleich"
+    return f"+{diff} min" if diff > 0 else f"{-diff} min früher"
 
 
 def _tafel(p: dict, d, richtung: str, jetzt: datetime) -> Optional[dict]:

@@ -117,3 +117,39 @@ def test_linie_ohne_zugnummer():
     assert linie_sauber("RB68 (15322)") == "RB 68"
     assert linie_sauber("S6") == "S6"
     assert linie_sauber("Tram 3") == "Tram 3"
+
+
+def test_gegenrichtung_gleiche_minute_nicht_verwechseln(db):
+    """Darmstadt Hbf 00:30: RB 68 nach Frankfurt (Gl. 5) und nach Heidelberg (Gl. 10)."""
+    g, antworten = db
+    ab = datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(minutes=30)
+    eva = E["haltestellen"]["gelnhausen"]["eva"]
+    antworten[f"plan:{eva}"] = tafel(
+        f'<s id="fulda"><dp pt="{ab:%y%m%d%H%M}" pp="4" l="RE50" ppth="Wächtersbach|Fulda"/></s>'
+        f'<s id="ffm"><dp pt="{ab:%y%m%d%H%M}" pp="2" l="RE50" ppth="Hanau Hbf|Frankfurt(Main)Hbf"/></s>')
+    antworten[f"fchg:{eva}"] = tafel('<s id="fulda"><dp cp="9"/></s>')
+    v = zug(ab)
+    g.ergaenzen(v)
+    assert v.fahrten[0].gleis_ab == "2"
+    assert g.eintrag_id(eva, v.fahrten[0]) == "ffm"
+
+
+def test_doppelter_eintrag_der_mit_aenderung_gilt_ueberall(db):
+    """Derselbe Zug zweimal in der Tafel, Verspätung und Gleis nur beim zweiten:
+    Verbindung und Abfahrtstafel zeigen beide diesen Eintrag."""
+    g, antworten = db
+    ab = datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(minutes=30)
+    pt = f"{ab:%y%m%d%H%M}"
+    eva = E["haltestellen"]["gelnhausen"]["eva"]
+    pfad = 'ppth="Hanau Hbf|Frankfurt(Main)Hbf"'
+    antworten[f"plan:{eva}"] = tafel(
+        f'<s id="a"><tl c="RE" n="4503"/><dp pt="{pt}" pp="7" l="RE50" {pfad}/></s>'
+        f'<s id="b"><tl c="RE" n="4503"/><dp pt="{pt}" pp="7" l="RE50" {pfad}/></s>')
+    antworten[f"fchg:{eva}"] = tafel(f'<s id="b"><dp ct="{(ab + timedelta(minutes=11)):%y%m%d%H%M}" cp="9"/></s>')
+    v = zug(ab)
+    g.ergaenzen(v)
+    a = v.fahrten[0]
+    assert (a.gleis_ab, a.verspaetung_ab) == ("9", 11)
+    zeilen = g.tafel(eva, ab - timedelta(minutes=5), ab + timedelta(minutes=30), ["Frankfurt (Main) Hauptbahnhof"])
+    assert [(z["id"], z["gleis"], z["plus"]) for z in zeilen] == [("b", "9", 11)]
+    assert g.eintrag_id(eva, a) == "b"
