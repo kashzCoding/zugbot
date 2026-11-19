@@ -27,11 +27,14 @@ def bauen(v: Verbindung, jetzt: datetime, gleise, regeln: Regeln, e: dict, immer
     i = zuege.index(naechster)
     rest = zuege[i:]
     # Am Umstiegsbahnhof erst ab deiner Ankunft dort (mit Umstiegszeit) zählen
+    # Auch Züge, die knapp nach deiner Ankunft fahren: Die erreicht man oft noch.
     frueh = jetzt - timedelta(minutes=2)
+    knapp_bis = None
     if i > 0:
         minimum = regeln.umstieg_darmstadt_min if bewertung.ist_darmstadt_hbf(naechster.von, regeln) \
             else regeln.umstieg_min
-        frueh = max(frueh, zuege[i - 1].an + timedelta(minutes=minimum))
+        frueh = max(frueh, zuege[i - 1].an)
+        knapp_bis = zuege[i - 1].an + timedelta(minutes=minimum)
     if immer:       # Stunden vorher: die Züge rund um deine Abfahrt, nicht die von jetzt
         frueh = max(frueh, naechster.ab - timedelta(minutes=45))
     ziele = [a.nach.name for a in rest]
@@ -41,5 +44,9 @@ def bauen(v: Verbindung, jetzt: datetime, gleise, regeln: Regeln, e: dict, immer
     zuege_tafel = gleise.tafel(eva, frueh, max(naechster.ab, frueh) + timedelta(minutes=40), ziele)
     # "dein Zug" markiert erst das Dashboard (web.ist_deiner), aus dem aktuellen
     # Plan: nach "Nehme ich" ist die gemerkte Tafel sonst veraltet.
+    for zt in zuege_tafel:
+        ist = datetime.strptime(zt["pt"], "%y%m%d%H%M").replace(tzinfo=jetzt.tzinfo) + \
+            timedelta(minutes=zt.get("plus") or 0)
+        zt["knapp"] = bool(knapp_bis and ist < knapp_bis)
     return {"bahnhof": texte.kurzname(naechster.von.name), "halt_id": naechster.von.id,
             "stand": jetzt.isoformat(), "zuege": zuege_tafel[:8]}

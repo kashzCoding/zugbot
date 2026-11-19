@@ -210,11 +210,13 @@ class Dienst:
                             "Der bisherige Plan bleibt.", "hoch")
                 continue
             log.info("Zug genommen %s %s: %s", d, r, neu.schluessel())
+            p.get("alternativen", {}).pop(r, None)
             p.get("zug_fehler", {}).pop(r, None)
             p[r] = neu.als_dict()
             p.setdefault("wahl", {})[r] = neu.schluessel()
             p.get("geprueft", {}).pop(r, None)
-            z["gemeldet"].pop(f"{d.isoformat()}:{r}", None)
+            # Was jetzt schon so ist (z. B. knapper Umstieg in den gewählten Zug), nicht nochmal melden
+            z["gemeldet"][f"{d.isoformat()}:{r}"] = ueberwachung.zustand_schluessel(neu, self.regeln, jetzt)
             klappt = r == "rueck" or not neu.ziel_zeit or neu.an <= neu.ziel_zeit
             ntfy.senden("Neuer Plan" if klappt else "Neuer Plan, aber zu spät",
                         texte.kurzfassung(neu, self.regeln), "normal" if klappt else "hoch")
@@ -313,9 +315,28 @@ class Dienst:
         meldungen = ueberwachung.lage(v_neu, self.regeln, jetzt, zuletzt,
                                       self.ue["abfahrt_verspaetung_melden_ab_minuten"])
 
+        alternativen = p.setdefault("alternativen", {})
+        if any(m.art == "entwarnung" for m in meldungen):
+            alternativen.pop(richtung, None)
+        if any(m.plan_b for m in meldungen):
+            # Umstieg knapp: Plan bleibt. Ausweichzug merken, im Dashboard mit einem Tipp
+            b = self.planer.neu_planen(v_neu, jetzt)
+            zug = _erster_anderer(b, v_neu)
+            if zug:
+                alternativen[richtung] = [_alternative("plan_b", zug, zug.ab, b.an)]
+                for m in meldungen:
+                    if m.plan_b:
+                        m.text += (f"\nKlappt es nicht: {zug.linie} {zug.ab:%H:%M}, an {b.an:%H:%M}. "
+                                   "Im Dashboard mit einem Tipp übernehmen.")
+                        break
+
         if ueberwachung.braucht_neuplanung(meldungen):
             neu = self.planer.neu_planen(v_neu, jetzt)
             if ueberwachung.ist_besser(neu, v_neu, self.regeln, jetzt):
+                # Anschluss weg: falls du ihn doch bekommen hast, ein Tipp holt ihn zurück
+                alt = _erster_anderer(v_neu, neu)
+                alternativen[richtung] = [_alternative("vorher", alt, alt.ab + timedelta(minutes=30))] \
+                    if alt and not alt.ausfall else []
                 klappt = richtung == "rueck" or not neu.ziel_zeit or neu.an <= neu.ziel_zeit
                 gruende = "\n".join(m.text for m in meldungen if m.neu_planen)
                 ntfy.senden("Neue Route" if klappt else "Verbindung klappt nicht mehr",
@@ -351,3 +372,21 @@ def starten() -> None:
     dienst = Dienst()
     threading.Thread(target=web.serve, daemon=True, name="web").start()
     dienst.laufen()
+
+
+def _erster_anderer(neu, alt):
+    """Der erste Zug in "neu", der nicht schon in "alt" am selben Platz steht."""
+    if neu is None or alt is None:
+        return None
+    for i, a in enumerate(neu.fahrten):
+        b = alt.fahrten[i] if i < len(alt.fahrten) else None
+        if b is None or (a.linie, a.ab_plan, a.von.basis) != (b.linie, b.ab_plan, b.von.basis):
+            return a
+    return None
+
+
+def _alternative(art: str, zug, bis: datetime, an: Optional[datetime] = None) -> dict:
+    """Knopf im Dashboard: diesen Zug nehmen (über denselben Weg wie "Nehme ich")."""
+    return {"art": art, "halt_id": zug.von.id, "linie": zug.linie,
+            "pt": f"{zug.ab_plan:%y%m%d%H%M}", "ab": f"{zug.ab:%H:%M}",
+            "an": f"{an:%H:%M}" if an else "", "bis": bis.isoformat()}

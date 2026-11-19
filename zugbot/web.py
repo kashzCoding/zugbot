@@ -154,6 +154,12 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
     }
 
 
+def _alternativen(p: Optional[dict], richtung: str, jetzt: datetime) -> list[dict]:
+    """Knöpfe aus der Überwachung, solange sie noch Sinn haben."""
+    return [a for a in ((p or {}).get("alternativen") or {}).get(richtung, [])
+            if datetime.fromisoformat(a["bis"]) > jetzt]
+
+
 def _schritt(v: Verbindung, jetzt: datetime) -> Optional[dict]:
     """Unterwegs: was als Nächstes zu tun ist. Die Seite zählt die Minuten selbst herunter."""
     fahrten = v.fahrten
@@ -493,6 +499,12 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
         v = zustand.verbindung(z, heute, r)
         if v and v.an >= jetzt:
             kopf = fahrt_daten(v, regeln, jetzt)
+            kopf.update({"datum": heute.isoformat(), "r": r,
+                         "alternativen": [dict(a, text=(
+                             f"Anschluss nicht bekommen? {a['linie']} {a['ab']}" + (f", an {a['an']}" if a["an"] else "")
+                             if a["art"] == "plan_b" else f"{a['linie']} {a['ab']} doch bekommen?"),
+                             knopf=f"{a['linie']} nehmen" if a["art"] == "plan_b" else "Ja, bin drin")
+                             for a in _alternativen(p_heute, r, jetzt)]})
             break
     if kopf is None:
         if p_heute and p_heute["tag"]["frei"]:
@@ -567,12 +579,19 @@ def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     tafel = _tafel_roh(p or {}, d, richtung, jetzt) if richtung in ("hin", "rueck") else None
     zug = next((z for z in (tafel or {}).get("zuege", [])
                 if z["pt"] == pt and z["linie"] == daten.get("linie")), None)
+    halt_id = (tafel or {}).get("halt_id")
+    if zug is None:
+        # Knöpfe in der Kopfkarte: Ausweichzug ("nicht bekommen") oder alter Zug ("doch bekommen")
+        alt = next((a for a in _alternativen(p, richtung, jetzt)
+                    if a["pt"] == pt and a["linie"] == daten.get("linie")), None)
+        if alt:
+            zug, halt_id = {"linie": alt["linie"], "ist": alt["ab"], "ausfall": False}, alt["halt_id"]
     if zug is None:
         raise ValueError("Diesen Zug kenne ich nicht (mehr), bitte neu laden.")
     if zug["ausfall"]:
         raise ValueError("Dieser Zug fällt aus.")
     ab_plan = datetime.strptime(pt, "%y%m%d%H%M").replace(tzinfo=config.zeitzone())
-    wuensche.zug_nehmen(d, richtung, {"halt_id": tafel["halt_id"], "linie": zug["linie"],
+    wuensche.zug_nehmen(d, richtung, {"halt_id": halt_id, "linie": zug["linie"],
                                       "ab_plan": ab_plan.isoformat()})
     return {"ok": True, "text": f"{zug['linie']} {zug['ist']}: Ich plane den Rest der Fahrt, gleich kommt ein Push."}
 

@@ -6,7 +6,7 @@ gemeldet wurde, und liefert nur Meldungen mit Folgen:
 
   ausfall           ein Zug/Bus fällt aus                    -> neu planen
   verpasst          Anschluss nicht mehr erreichbar          -> neu planen
-  umstieg_knapp     Umstieg unter Mindestzeit                -> neu planen versuchen
+  umstieg_knapp     Umstieg unter Mindestzeit                -> Plan bleibt, Plan B nennen
   gleis             Gleis/Steig geändert (noch nicht abgefahren)
   zu_spaet          Hinweg kommt nach Veranstaltungsbeginn an
   abfahrt_spaeter   erste Abfahrt deutlich verspätet (du kannst später los)
@@ -63,6 +63,7 @@ class Meldung:
     text: str
     dringend: bool = False     # ntfy-Priorität hoch
     neu_planen: bool = False
+    plan_b: bool = False       # Plan bleibt, Ausweichzug nennen
 
 
 def zustand_schluessel(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict[str, str]:
@@ -125,7 +126,12 @@ def lage(v: Verbindung, regeln: Regeln, jetzt: datetime, zuletzt: dict[str, str]
             else:
                 text = (f"Umstieg {kurzname(u.ort)} knapp: {u.minuten} min statt {u.minuten_plan} "
                         f"({an.linie} +{an.verspaetung_an}).")
-            meldungen.append(Meldung("umstieg", text, dringend=(wert == "verpasst"), neu_planen=True))
+            # Nur knapp: Der Anschluss kann noch klappen (Züge warten, haben selbst
+            # Verspätung). Plan behalten und einen Ausweichzug nennen. Neu geplant
+            # wird erst, wenn er nach Echtzeit wirklich weg ist.
+            verpasst = wert == "verpasst"
+            meldungen.append(Meldung("umstieg", text, dringend=verpasst, neu_planen=verpasst,
+                                     plan_b=not verpasst))
         elif art == "zu_spaet":
             meldungen.append(Meldung("zu_spaet", f"Ankunft jetzt {wert}, geplant war spätestens "
                                                  f"{v.ziel_zeit:%H:%M}.", dringend=True, neu_planen=True))
@@ -136,6 +142,10 @@ def lage(v: Verbindung, regeln: Regeln, jetzt: datetime, zuletzt: dict[str, str]
 
     # Entwarnung, wenn ein gemeldetes Problem verschwunden ist
     for key in zuletzt:
+        if key.startswith("umstieg:"):
+            i = int(key.partition(":")[2]) + 1
+            if i >= len(fahrten) or fahrten[i].ab < jetzt:
+                continue      # Anschlusszug ist abgefahren: das ist keine Entwarnung
         if key.startswith(("umstieg:", "zu_spaet")) and key not in jetzt_z:
             meldungen.append(Meldung("entwarnung", "Entwarnung: Verbindung klappt wieder wie geplant."))
             break

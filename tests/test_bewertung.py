@@ -100,10 +100,10 @@ def test_meldung_nur_bei_folgen(regeln):
     v = verbindung(erste, fahrt(FFM, LW, t(7, 26), t(7, 50), "RB 82", "regional"))
     # +2 min, Umstieg bleibt 7 min: keine Meldung
     assert lage(v, regeln, jetzt, {}, abfahrt_schwelle=5) == []
-    # +5 min, Umstieg nur noch 4 min: Meldung und Neuplanung
+    # +5 min, Umstieg nur noch 4 min: Meldung mit Ausweichzug, Plan bleibt
     erste.ab_ist, erste.an_ist = t(6, 42), t(7, 22)
     meldungen = lage(v, regeln, jetzt, {}, abfahrt_schwelle=5)
-    assert any(m.art == "umstieg" and m.neu_planen for m in meldungen)
+    assert any(m.art == "umstieg" and m.plan_b and not m.neu_planen for m in meldungen)
     # dieselbe Lage beim nächsten Abruf: nicht nochmal melden
     zuletzt = zustand_schluessel(v, regeln, jetzt)
     assert [m for m in lage(v, regeln, jetzt, zuletzt, 5) if m.art == "umstieg"] == []
@@ -122,3 +122,21 @@ def test_speichern_und_laden():
     zurueck = Verbindung.aus_dict(v.als_dict())
     assert zurueck.fahrten[0].ab == t(6, 40)
     assert zurueck.ziel_zeit == t(8, 50)
+
+
+def test_erst_verpasst_wird_neu_geplant(regeln):
+    """Heute früh: RE 50 +10, RB 82 wartet. Knapp heißt nicht weg."""
+    jetzt = t(7, 0)
+    erste = fahrt(GELN, FFM, t(6, 37), t(7, 17), ab_ist=t(6, 47), an_ist=t(7, 27))
+    zweite = fahrt(FFM, LW, t(7, 26), t(7, 50), "RB 82", "regional", ab_ist=t(7, 33), an_ist=t(7, 57))
+    v = verbindung(erste, zweite)
+    assert not any(m.neu_planen for m in lage(v, regeln, jetzt, {}, 5))
+    zweite.ab_ist = t(7, 26)        # RB 82 fährt pünktlich: Anschluss wirklich weg
+    assert any(m.neu_planen and m.dringend for m in lage(v, regeln, jetzt, {}, 5))
+
+
+def test_keine_entwarnung_nach_abfahrt(regeln):
+    erste = fahrt(GELN, FFM, t(6, 37), t(7, 17), ab_ist=t(6, 42), an_ist=t(7, 22))
+    v = verbindung(erste, fahrt(FFM, LW, t(7, 26), t(7, 50), "RB 82", "regional"))
+    zuletzt = zustand_schluessel(v, regeln, t(7, 0))
+    assert [m for m in lage(v, regeln, t(7, 30), zuletzt, 5) if m.art == "entwarnung"] == []

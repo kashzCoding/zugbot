@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#e9ecf1">
+<meta name="theme-color" content="#e9ecf1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1116" media="(prefers-color-scheme: dark)">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -35,6 +36,19 @@
     --gruen-flaeche: #e6f4ea;
     --punkt: #22c55e;
     --radius: 16px;
+    --akzent-text: #3a2fd6;    /* Akzent als Schrift auf Karten */
+    --flaeche: #ffffff;        /* Reiter, kleine Flächen auf Grau */
+    --schatten: rgba(20,24,40,.10);
+    color-scheme: light dark;
+  }
+  /* Dunkel, wenn das Handy dunkel eingestellt ist. Kontraste wie hell mind. 4,5:1. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116; --karte: #1a1d24; --text: #eceef3; --grau: #a3aab7; --chip: #262a33;
+      --linie: #2e333d; --akzent-hell: #d6d3ff; --akzent-flaeche: #2b2763; --akzent-text: #b4aeff;
+      --orange-text: #ffb547; --orange-flaeche: #3a2c12; --gruen: #5ad17e; --gruen-flaeche: #15301e;
+      --flaeche: #1a1d24; --schatten: rgba(0,0,0,.45);
+    }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -45,7 +59,7 @@
     padding: max(16px, env(safe-area-inset-top)) 16px 32px;
   }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 3px solid var(--akzent); outline-offset: 2px; }
+  :focus-visible { outline: 3px solid var(--akzent-text); outline-offset: 2px; }
   [hidden] { display: none !important; }
 
   .seite { max-width: 440px; margin: 0 auto; display: grid; gap: 12px; }
@@ -58,6 +72,7 @@
   .live.nah .punkt { box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: puls 2s infinite; }
   @keyframes puls { 70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
 
+  .karte { scroll-margin-top: 72px; }
   .karte { background: var(--karte); border-radius: var(--radius); padding: 16px; }
   .karte h2 { font-size: 16px; font-weight: 700; margin: 0; }
   .klein { font-size: 13px; color: var(--grau); }
@@ -69,6 +84,12 @@
   .akzent .gross { font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; margin: 6px 0 8px; }
   .akzent .zeile { font-size: 15px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
   .akzent .gleis-marke { background: var(--orange); color: var(--text); border-radius: 7px; padding: 1px 8px; font-weight: 700; font-size: 14px; }
+  .akzent[data-sprung] { cursor: pointer; }
+  .akzent .alt { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.14);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; font-weight: 600; }
+  .knopf.hell { background: #fff; color: #3a2fd6; white-space: nowrap; flex: none; }
+  .ziehen { text-align: center; font-size: 13px; color: var(--grau); font-weight: 600; overflow: hidden; height: 0; transition: height .15s; }
+  .tafel-zeile .knapp { color: var(--orange-text); font-weight: 700; }
   .akzent .hinweis { font-size: 13px; color: var(--akzent-hell); margin-top: 6px; }
   .balken { display: flex; gap: 4px; margin-top: 16px; height: 8px; }
   .balken span { background: rgba(255,255,255,.85); border-radius: 4px; min-width: 6px; }
@@ -78,7 +99,8 @@
   .beschriftung span.spaet { color: var(--orange); }
 
   /* Reiter Heute/Morgen */
-  .reiter { display: flex; background: #fff; border-radius: 999px; padding: 4px; gap: 4px; }
+  .reiter { display: flex; background: var(--flaeche); border-radius: 999px; padding: 4px; gap: 4px; }
+  .reiter { position: sticky; top: max(8px, env(safe-area-inset-top)); z-index: 5; box-shadow: 0 4px 14px var(--schatten); }
   .reiter button { flex: 1; border: 0; background: none; border-radius: 999px; padding: 9px 8px; font-size: 15px; font-weight: 700; color: var(--grau); cursor: pointer; }
   .reiter button[aria-selected="true"] { background: var(--akzent); color: #fff; }
   .reiter small { display: block; font-size: 12px; font-weight: 500; opacity: .85; }
@@ -97,10 +119,11 @@
   /* Tageskarte */
   .info { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 7px; font-size: 14px; }
   .info li { display: flex; gap: 8px; align-items: center; }
-  .info li svg { flex: none; }
+  .info li svg { flex: none; color: var(--grau); }
+  .info li svg.warn-icon { color: var(--orange-text); }
   .info .fett { font-weight: 600; }
-  .campus-chip { background: var(--akzent-flaeche); color: var(--akzent); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; white-space: nowrap; }
-  .link { border: 0; background: none; padding: 0; color: var(--akzent); font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .campus-chip { background: var(--akzent-flaeche); color: var(--akzent-text); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .link { border: 0; background: none; padding: 0; color: var(--akzent-text); font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
   /* Zeit-Chips */
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -123,7 +146,7 @@
   .zu { width: 100%; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .zu .titel-zu { display: block; font-size: 16px; font-weight: 700; margin-bottom: 2px; }
   .zu .zeit-kurz { font-size: 17px; font-weight: 800; }
-  .zu .mehr { color: var(--akzent); font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .zu .mehr { color: var(--akzent-text); font-weight: 700; font-size: 14px; white-space: nowrap; }
   .lage { font-size: 13px; font-weight: 600; }
   .lage.warn, .lage.spaet { color: var(--orange-text); }
   .lage.ok { color: var(--gruen); }
@@ -142,11 +165,11 @@
   .tafel .wohin .heim { white-space: normal; }      /* Vergleich darf umbrechen, nie abgeschnitten */
   .tafel .wohin .heim .vgl { font-weight: 700; color: var(--grau); white-space: nowrap; }
   .tafel .wohin .heim .vgl.frueher { color: var(--gruen); }
-  .tafel > .link { margin-top: 8px; }
+  .tafel > .link { margin-top: 4px; padding: 8px 0; }
   .tafel-zeile .wohin { min-width: 0; }
   .tafel-zeile .wohin b { font-weight: 700; }
   .tafel-zeile .wohin span { display: block; font-size: 12px; color: var(--grau); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .knopf.klein { padding: 7px 12px; font-size: 13px; }
+  .knopf.klein { padding: 9px 14px; font-size: 13px; min-height: 38px; }
   .zchip[aria-pressed="true"] { background: var(--akzent); color: #fff; }
   .zchip[aria-pressed="true"] span { color: var(--akzent-hell); }
   .zchip.ueberwacht::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--punkt); }
@@ -156,7 +179,7 @@
   .gross-zeit .pfeil { color: var(--grau); font-weight: 500; font-size: 20px; }
   .marken { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   .chip { background: var(--chip); color: var(--grau); border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
-  .chip.ueberwacht { background: var(--akzent-flaeche); color: var(--akzent); }
+  .chip.ueberwacht { background: var(--akzent-flaeche); color: var(--akzent-text); }
   .chip.empfohlen { background: var(--gruen-flaeche); color: var(--gruen); }
   .chip.warn { background: var(--orange-flaeche); color: var(--orange-text); }
   .wahl { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
@@ -183,7 +206,7 @@
   .schiene::before, .schiene::after { content: ""; position: absolute; left: 7px; width: 4px; }
   .schiene::before { top: 0; height: 10px; background: var(--oben, transparent); }
   .schiene::after { top: 10px; bottom: 0; background: var(--unten, transparent); }
-  .schiene i { position: absolute; left: 2px; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--rand, var(--akzent)); z-index: 1; }
+  .schiene i { position: absolute; left: 2px; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--karte); border: 3px solid var(--rand, var(--akzent)); z-index: 1; }
   .schiene.ziel i { background: var(--rand, var(--akzent)); }
   .fahrt .schiene::before { height: 100%; background: var(--farbe); }
   .fahrt .schiene::after { display: none; }
@@ -198,7 +221,7 @@
   .stadt { margin-top: 8px; padding: 9px 11px; border-radius: 12px; background: var(--orange-flaeche); font-size: 13px; color: var(--grau); }
   .stadt b { color: var(--text); }
   .zeiten { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-  .zeiten span { background: #fff; color: var(--text); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  .zeiten span { background: var(--flaeche); color: var(--text); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
   .zeiten span.deine { background: var(--akzent); color: #fff; }
 
   /* Zeiten anpassen */
@@ -228,7 +251,7 @@
   .meldung { font-size: 13px; font-weight: 600; min-height: 1em; }
   .meldung.fehler { color: var(--orange-text); }
   .meldung.ok { color: var(--gruen); }
-  #a-mehr summary { font-weight: 700; color: var(--akzent); justify-content: flex-start; gap: 6px; }
+  #a-mehr summary { font-weight: 700; color: var(--akzent-text); justify-content: flex-start; gap: 6px; }
   #a-mehr summary::after { margin-bottom: 2px; }
   #a-mehr .formular { margin-top: 10px; }
   .eigene-liste:empty { display: none; }
@@ -247,6 +270,7 @@
     <div class="live" id="live"><span class="punkt" aria-hidden="true"></span><span id="modus">lädt</span></div>
   </header>
   <div class="stoerung" id="stoerung" role="status" hidden></div>
+  <div class="ziehen" id="ziehen" aria-hidden="true"></div>
   <section class="akzent" id="akzent" aria-live="polite"></section>
   <div class="reiter" role="tablist" id="reiter"></div>
   <!-- Zeiten anpassen: erscheint direkt unter den Tagen-Reitern, wenn man "ändern" tippt -->
@@ -294,10 +318,10 @@
 <script>
 "use strict";
 const ICON = {
-  glocke: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3L4 11zM6.5 14h3" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  uhr: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" fill="none" stroke="#5b6270" stroke-width="1.6"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="#5b6270" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  ort: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z" fill="none" stroke="#5b6270" stroke-width="1.6"/><circle cx="8" cy="6.5" r="1.6" fill="#5b6270"/></svg>',
-  warn: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14 13H2L8 2.5zM8 6.5v3M8 11.3v.2" fill="none" stroke="#9a5800" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  glocke: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3L4 11zM6.5 14h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  uhr: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  ort: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="6.5" r="1.6" fill="currentColor"/></svg>',
+  warn: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14 13H2L8 2.5zM8 6.5v3M8 11.3v.2" fill="none" stroke="currentColor" class="warn-icon" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let daten = null, tagIndex = null, schnell = 0, timer = null;
@@ -323,10 +347,10 @@ function akzent(d) {
   // Minuten zählt die Seite selbst (akzent läuft alle 20 s), nicht erst beim nächsten Abruf
   const min = iso => Math.round((new Date(iso) - Date.now()) / 60000);
   const dauer = m => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
-  let oben = k.richtung, gross, zeile;
+  let oben = "Heute · " + k.richtung, gross, zeile;
   if (k.unterwegs && k.schritt) {       // unterwegs: nur der nächste Schritt
     const m = min(k.schritt.zeit_iso), s = k.schritt;
-    oben = `${k.richtung} · zu Hause/am Ziel ${k.an}`.replace("zu Hause/am Ziel", k.richtung.startsWith("Rück") ? "zu Hause" : "am Ziel");
+    oben = `Heute · ${k.richtung} · zu Hause/am Ziel ${k.an}`.replace("zu Hause/am Ziel", k.richtung.startsWith("Rück") ? "zu Hause" : "am Ziel");
     gross = m > 0 ? `In ${dauer(m)}` : "Jetzt";
     zeile = `<div class="schritt">${esc(s.titel)}</div>
       <div class="zeile"><span>${esc(s.text)}</span>${s.gleis ? `<span class="gleis-marke">${esc(s.gleis)}</span>` : ""}</div>`;
@@ -340,7 +364,12 @@ function akzent(d) {
     ${zeile}
     ${k.hinweis ? `<div class="hinweis">${esc(k.hinweis)}</div>` : ""}
     <div class="balken" aria-hidden="true">${balken}</div>
-    <div class="beschriftung" aria-hidden="true">${text}</div>`);
+    <div class="beschriftung" aria-hidden="true">${text}</div>
+    ${(k.alternativen || []).map(a => `<div class="alt"><span>${esc(a.text)}</span>
+      <button type="button" class="knopf hell klein" data-zug="${esc(a.pt)}" data-linie="${esc(a.linie)}"
+        data-datum="${esc(k.datum)}" data-richtung="${esc(k.r)}" data-knopf="${esc(a.knopf)}">${esc(a.knopf)}</button></div>`).join("")}`);
+  el.dataset.sprung = k.r ? `${k.datum}:${k.r}` : "";
+  if (!k.r) delete el.dataset.sprung;
 }
 
 /* ---------- Zeitstrahl ---------- */
@@ -384,7 +413,7 @@ function gezeigt(f, datum) {
 
 function zugeklappt(f, datum) {
   const k = f.kurz;
-  return `<section class="karte ${k.vorbei ? "erledigt" : ""}"><button type="button" class="zu" data-auf="${esc(datum)}:${esc(f.richtung)}" aria-expanded="false">
+  return `<section class="karte ${k.vorbei ? "erledigt" : ""}" id="fahrt-${esc(datum)}-${esc(f.richtung)}"><button type="button" class="zu" data-auf="${esc(datum)}:${esc(f.richtung)}" aria-expanded="false">
     <span><span class="titel-zu">${esc(f.titel)}</span><span class="zeit-kurz">${k.vorbei ? `angekommen ${esc(k.an)}` : `${esc(k.ab)} → ${esc(k.an)}`}</span>
       ${k.lage && !k.vorbei ? ` <span class="lage ${esc(k.lage_art)}">${esc(k.lage)}</span>` : ""}</span>
     <span class="mehr">Details</span></button></section>`;
@@ -402,7 +431,7 @@ function tafelZeile(t, z, datum, richtung) {
   // Zwei Zeilen: Zug, Gleis, Endhalt / Ankunft am Ziel. "über Gelnhausen" fehlt mit
   // Absicht: auf der Tafel stehen ohnehin nur Züge, die dorthin fahren.
   return `<div class="tafel-zeile">${zeit}
-    <span class="wohin"><span class="zug"><b>${esc(z.linie)}</b>${gleis}${z.ziel ? ` · ${esc(texte_kurz(z.ziel))}` : ""}</span>${
+    <span class="wohin"><span class="zug"><b>${esc(z.linie)}</b>${gleis}${z.knapp ? ` · <span class="knapp">knapp</span>` : ""}${z.ziel ? ` · ${esc(texte_kurz(z.ziel))}` : ""}</span>${
       z.ausfall ? "" : z.heim ? `<span class="heim">an <b>${esc(z.heim)}</b>${vgl}</span>`
         : z.heim === "" ? `<span class="heim keine">keine Weiterfahrt gefunden</span>`
         : `<span class="heim keine">Ankunft wird berechnet …</span>`}</span>
@@ -444,7 +473,7 @@ function fahrtKarte(f, datum) {
       data-richtung="${esc(f.richtung)}">Diese nehmen</button></div>`;
   const zuKnopf = f.aufklappbar ? `<button type="button" class="link" data-zu="${esc(key)}">Einklappen</button>` :
     (f.optionen.length > 1 ? `<span class="klein">${f.optionen.length} Optionen</span>` : "");
-  return `<section class="karte"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>${zuKnopf}</div>
+  return `<section class="karte" id="fahrt-${esc(datum)}-${esc(f.richtung)}"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>${zuKnopf}</div>
     ${chips}
     <div class="auswahl" data-key="${esc(key)}">
       ${chips ? "" : `<div class="gross-zeit">${esc(o.ab)}<span class="pfeil">→</span>${esc(o.an)}</div>`}
@@ -650,11 +679,13 @@ document.addEventListener("click", async ev => {
       meldungBei(zg, j.text, "ok");
       beschleunigen();
     } catch (e) {
-      zg.disabled = false; zg.textContent = "Nehme ich";
+      zg.disabled = false; zg.textContent = zg.dataset.knopf || "Nehme ich";
       meldungBei(zg, e.message);
     }
     return;
   }
+  const sp = ev.target.closest("#akzent[data-sprung]");
+  if (sp && !ev.target.closest("button")) { zurFahrt(sp.dataset.sprung); return; }
   const w = ev.target.closest("[data-waehlen]");
   if (w) {
     w.disabled = true; w.textContent = "Wird übernommen …";
@@ -667,6 +698,21 @@ document.addEventListener("click", async ev => {
     }
   }
 });
+/* Tipp auf die blaue Box: zur passenden Fahrt von heute, aufgeklappt */
+function zurFahrt(key) {
+  const [datum, richtung] = key.split(":");
+  tagIndex = 0;
+  try { sessionStorage.setItem("zugbot-tag", 0); } catch (e) {}
+  const f = daten && daten.tage[0].fahrten.find(x => x.richtung === richtung);
+  if (f && f.zu) {
+    offen.add(key);
+    try { sessionStorage.setItem("zugbot-offen", JSON.stringify([...offen])); } catch (e) {}
+    planen(0);
+  }
+  neuZeichnen();
+  const el = document.getElementById(`fahrt-${datum}-${richtung}`);
+  if (el) el.scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start"});
+}
 function meldungBei(el, text, art) {
   const m = document.createElement("span");
   m.className = "klein"; m.style.color = art === "ok" ? "var(--gruen)" : "var(--orange-text)"; m.textContent = text;
@@ -716,7 +762,7 @@ function meldungenZeigen(liste) {
       <span><b>${esc(m.titel)}</b><span class="text">${esc(m.text)}</span></span></li>`).join(""));
 }
 
-let geladenUm = 0, tafelWarten = 0;
+let geladenUm = 0, tafelWarten = 0, heuteZeigen = true;
 async function laden() {
   try {
     // relativ, weil die Seite unter /<schlüssel>/ liegt
@@ -732,6 +778,10 @@ async function laden() {
     return;
   }
   try {
+    // Läuft heute gleich oder gerade eine Fahrt, zeigt die Seite "Heute", auch wenn
+    // zuletzt "Morgen" offen war. Sonst passen die blaue Box und die Karten nicht zusammen.
+    if (heuteZeigen && d.kopf.r && (d.kopf.unterwegs || new Date(d.kopf.ab_iso) - Date.now() < 3 * 3600e3)) tagIndex = 0;
+    heuteZeigen = false;
     daten = d; geladenUm = Date.now();
     document.getElementById("datum").textContent = d.datum;
     document.getElementById("modus").textContent = d.modus;
@@ -762,7 +812,28 @@ setInterval(() => { if (daten && !document.hidden) akzent(daten); }, 20000);
 function zurueck() {
   if (document.hidden || Date.now() - geladenUm < 15000) return;
   if (Date.now() - geladenUm > 120000) document.getElementById("modus").textContent = "aktualisiere …";
+  if (Date.now() - geladenUm > 600000) heuteZeigen = true;     // nach längerer Pause wieder bei "Heute" anfangen
   laden();
+}
+/* Runterziehen lädt neu. Nur als App vom Home-Bildschirm: Safari hat das selbst. */
+if (navigator.standalone || matchMedia("(display-mode: standalone)").matches) {
+  const z = document.getElementById("ziehen");
+  let start = null, weg = 0;
+  document.addEventListener("touchstart", ev => {
+    start = window.scrollY <= 0 && ev.touches.length === 1 ? ev.touches[0].clientY : null; weg = 0;
+  }, {passive: true});
+  document.addEventListener("touchmove", ev => {
+    if (start === null) return;
+    weg = Math.max(0, ev.touches[0].clientY - start);
+    z.style.height = Math.min(weg / 2, 40) + "px";
+    z.textContent = weg > 90 ? "Loslassen zum Aktualisieren" : "Zum Aktualisieren ziehen";
+  }, {passive: true});
+  document.addEventListener("touchend", () => {
+    if (start === null) return;
+    start = null;
+    if (weg > 90) { z.textContent = "Aktualisiere …"; laden().finally(() => { z.style.height = "0"; }); }
+    else z.style.height = "0";
+  }, {passive: true});
 }
 document.addEventListener("visibilitychange", zurueck);
 window.addEventListener("pageshow", zurueck);

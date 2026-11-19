@@ -291,9 +291,23 @@ class Planer:
             kandidaten = self._ueber_fahrt(v, vorne, halt_id, nummer, ab_plan, ziele)
         for k in kandidaten:
             self.gleise.ergaenzen(k)
-        def geht(liste):
-            return [k for k in liste if not bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)]
+        def geht(liste, knapp_ok=False):
+            ok = []
+            for k in liste:
+                gruende = bewertung.pruefe(k, self.regeln, pflicht_frankfurt=False)
+                if knapp_ok and vorne:
+                    # Du hast den Zug gewählt (z. B. "doch bekommen"): ein knapper
+                    # Umstieg hinein zählt, solange er nach Echtzeit nicht weg ist.
+                    u = bewertung.umstiege(k, self.regeln)[len(vorne) - 1]
+                    if u.minuten >= 0:
+                        gruende = [g for g in gruende if not g.startswith(f"Umstieg {u.ort} nur")]
+                if not gruende:
+                    ok.append(k)
+            return ok
         gut = geht(kandidaten)
+        knapp = not gut and bool(geht(kandidaten, knapp_ok=True))
+        if knapp:
+            gut = geht(kandidaten, knapp_ok=True)
         selbst = False
         if not gut and vorne:
             # Der Weg zum Bahnhof (z. B. der Bus) ist für diesen Zug zu knapp. Du hast
@@ -308,6 +322,8 @@ class Planer:
             return None
         beste = max(gut, key=lambda x: bewertung.punkte_rettung(x, self.regeln, v.ziel_zeit))
         beste.hinweis = f"Du nimmst {linie} {ab_plan:%H:%M}"
+        if knapp:
+            beste.hinweis += ", Umstieg knapp"
         if selbst:
             beste.hinweis += f", {vorne[-1].linie} {vorne[-1].ab_plan:%H:%M} wäre dafür zu knapp"
         return beste
