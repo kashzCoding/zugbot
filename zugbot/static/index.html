@@ -860,7 +860,8 @@ async function laden() {
     const st = document.getElementById("stoerung");
     st.hidden = !d.stoerung;
     st.textContent = d.stoerung;
-    document.getElementById("stand").textContent = d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "";
+    document.getElementById("stand").textContent = (d.aktualisiert ? `Zuletzt geprüft ${d.aktualisiert} Uhr` : "")
+      + ` · Seite ${SEITEN_VERSION.slice(0, 7)}`;
     // ausgewählte Chips nach einer Übernahme wieder der überwachten Fahrt folgen lassen
     d.tage.forEach(t => t.fahrten.forEach(f => { if ((f.optionen || []).some(o => o.wird_gewaehlt)) delete auswahl[`${t.datum}:${f.richtung}`]; }));
     akzent(d); tage(d); anpassen(d); meldungenZeigen(d.meldungen || []);

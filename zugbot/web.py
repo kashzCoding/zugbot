@@ -701,6 +701,9 @@ class Handler(BaseHTTPRequestHandler):
             # einem Deploy sofort die neue Seite statt der alten aus dem Zwischenspeicher
             version, seite = seite_mit_version()
             etag = f'"{version}"'
+            # Welche Seite hat das Handy? (Fehlersuche Zwischenspeicher; ohne Schlüssel und IP)
+            log.debug("Seite abgerufen: hat %s, aktuell %s, %s", self.headers.get("If-None-Match") or "nichts",
+                     etag, (self.headers.get("User-Agent") or "")[:60])
             if self.headers.get("If-None-Match") == etag:
                 self._senden(304, "text/html; charset=utf-8", b"", {"ETag": etag}, cache="private, no-cache")
             else:
