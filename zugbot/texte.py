@@ -49,7 +49,7 @@ def kurzfassung(v: Verbindung, regeln: Regeln) -> str:
 
 
 def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], regeln: Regeln,
-              wann: str = "Morgen", takt: str = "") -> tuple[str, str]:
+              wann: str = "Morgen", takt: str = "", rueck_offen: bool = False) -> tuple[str, str]:
     wt = WOCHENTAGE_LANG[tag.datum.weekday()]
     if tag.frei:
         return f"{wann} frei ({wt})", tag.grund.capitalize() if tag.grund else "Keine Termine."
@@ -69,6 +69,8 @@ def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], 
     if rueck:
         teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, zu Hause {rueck.an:%H:%M}"
                      + (" (eigene Zeit)" if tag.rueck_ab or tag.heim_bis else ""))
+    elif rueck_offen:
+        teile.append("Rückfahrt: noch keine Zeit eingetragen, im Dashboard eintragen.")
     elif tag.heim_bis:
         teile.append(f"Keine Rückfahrt gefunden, mit der du bis {tag.heim_bis:%H:%M} zu Hause bist.")
     teile += tag.warnungen

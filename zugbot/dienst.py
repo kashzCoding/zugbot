@@ -63,7 +63,14 @@ class Dienst:
         return datetime.now(self.tz)
 
     # ------------------------------------------------------------ Planung
-    def tag_planen(self, d: date, w: Optional[dict] = None) -> dict:
+    def rueck_offen(self, t: stundenplan.Tag) -> bool:
+        """Rückfahrt wartet auf deine Zeit: ohne "Zurück ab" / "zu Hause um" nichts planen."""
+        return bool(self.e["rueckweg"].get("nur_mit_eigener_zeit")) and not (t.rueck_ab or t.heim_bis)
+
+    def tag_planen(self, d: date, w: Optional[dict] = None,
+                   richtungen: tuple = ("hin", "rueck")) -> dict:
+        """Plant den Tag. Mit richtungen=("rueck",) bleibt die Hinfahrt leer
+        (der Aufrufer übernimmt sie aus dem alten Plan)."""
         w = wuensche.laden() if w is None else w
         t = wuensche.tag(d, w)
         p = {"tag": tag_als_dict(t), "hin": None, "rueck": None,
@@ -71,7 +78,12 @@ class Dienst:
              "optionen": {"hin": [], "rueck": []}, "stadt": {}, "wahl": {}}
         if t.frei:
             return p
-        ergebnisse = {"hin": self.planer.hinweg(t), "rueck": self.planer.rueckweg(t)}
+        p["rueck_offen"] = self.rueck_offen(t)
+        ergebnisse = {}
+        if "hin" in richtungen:
+            ergebnisse["hin"] = self.planer.hinweg(t)
+        if "rueck" in richtungen and not p["rueck_offen"]:
+            ergebnisse["rueck"] = self.planer.rueckweg(t)
         for r, erg in ergebnisse.items():
             p["optionen"][r] = [o.als_dict() for o in erg.optionen]
             p[r] = erg.verbindung.als_dict() if erg.verbindung else None
@@ -79,18 +91,16 @@ class Dienst:
             if gewaehlt and not zustand.wahl_anwenden(p, r, gewaehlt):
                 log.info("Gewählte Verbindung %s gibt es nicht mehr, nehme die beste", gewaehlt)
         try:   # Takt der letzten Meile ist nur Zusatz: ohne ihn trotzdem planen
-            p["stadt"] = {
-                "hin": self.planer.stadtfahrten("hin", t.campus, ergebnisse["hin"].optionen),
-                "rueck": self.planer.stadtfahrten("rueck", t.campus, ergebnisse["rueck"].optionen,
-                                                  self.planer.frueheste_rueckfahrt(t)),
-            }
+            if "hin" in ergebnisse:
+                p["stadt"]["hin"] = self.planer.stadtfahrten("hin", t.campus, ergebnisse["hin"].optionen)
+            if "rueck" in ergebnisse:
+                p["stadt"]["rueck"] = self.planer.stadtfahrten("rueck", t.campus, ergebnisse["rueck"].optionen,
+                                                               self.planer.frueheste_rueckfahrt(t))
         except BahnFehler as exc:
             log.warning("Tram/Bus-Takt nicht abrufbar: %s", exc)
-        hin = Verbindung.aus_dict(p["hin"]) if p["hin"] else None
-        rueck = Verbindung.aus_dict(p["rueck"]) if p["rueck"] else None
-        if not hin or not rueck:
-            p["fehler"] = "Keine passende " + ("Hinfahrt" if not hin else "Rückfahrt") + " gefunden."
-        log.info("Plan %s: hin %s, rück %s", d, hin and hin.schluessel(), rueck and rueck.schluessel())
+        _fehler_setzen(p)
+        log.info("Plan %s: hin %s, rück %s", d, p["hin"] and Verbindung.aus_dict(p["hin"]).schluessel(),
+                 p["rueck"] and Verbindung.aus_dict(p["rueck"]).schluessel())
         return p
 
     # ------------------------------------------------------------ Schleife
@@ -127,6 +137,8 @@ class Dienst:
                     z["plaene"][d.isoformat()] = self.tag_planen(d, w)
                 elif p["tag"].get("eigene") != wuensche.anpassung(w, d):
                     self._angepasst(z, w, d, jetzt)
+                elif "rueck_offen" not in p and not p["tag"]["frei"]:
+                    self._rueck_offen_nachtragen(p, w, d)
                 else:
                     self._wahl_uebernehmen(z, w, d)
                     self._zug_uebernehmen(z, w, d, jetzt)
@@ -163,24 +175,63 @@ class Dienst:
 
     # ------------------------------------------------------------ Wünsche
     def _angepasst(self, z: dict, w: dict, d: date, jetzt: datetime) -> None:
-        """Eigene Zeiten geändert: Tag neu planen."""
+        """Eigene Zeiten geändert: neu planen, was davon betroffen ist.
+
+        Hängt die Hinfahrt nicht an der Änderung (nur Rückfahrtzeit geändert) oder
+        ist sie schon gefahren, bleibt sie, wie sie ist. Der Push nennt nur die
+        Fahrten, die sich wirklich geändert haben."""
         log.info("Eigene Zeiten für %s: %s", d, wuensche.anpassung(w, d))
         alt = z["plaene"].get(d.isoformat()) or {}
-        p = self.tag_planen(d, w)
-        # Schon gefahrene Hinfahrt behalten: die neue Planung kennt nur den Fahrplan
-        if alt.get("hin") and Verbindung.aus_dict(alt["hin"]).an < jetzt:
+        hin_bleibt = bool(alt.get("hin")) and (
+            _hin_eingaben(alt["tag"].get("eigene")) == _hin_eingaben(wuensche.anpassung(w, d))
+            and not alt["tag"].get("frei")
+            or Verbindung.aus_dict(alt["hin"]).an < jetzt)   # schon gefahren: neue Planung kennt nur den Fahrplan
+        p = self.tag_planen(d, w, ("rueck",) if hin_bleibt else ("hin", "rueck"))
+        if hin_bleibt and not p["tag"]["frei"]:
+            for k in ("optionen", "stadt", "tafel", "zusatz", "alternativen", "geprueft", "zug", "wahl", "zug_fehler"):
+                if (alt.get(k) or {}).get("hin") is not None:
+                    p.setdefault(k, {})["hin"] = alt[k]["hin"]
             p["hin"] = alt["hin"]
-            p["optionen"]["hin"] = (alt.get("optionen") or {}).get("hin", [])
-            if p.get("rueck"):
-                p["fehler"] = ""
+            _fehler_setzen(p)
         z["plaene"][d.isoformat()] = p
-        for r in ("hin", "rueck"):
+        geaendert = [r for r in ("hin", "rueck") if _schluessel(alt.get(r)) != _schluessel(p.get(r))
+                     or alt.get("tag", {}).get("frei") != p["tag"]["frei"]]
+        for r in geaendert:
             z["gemeldet"].pop(f"{d.isoformat()}:{r}", None)
         # Push nur, wenn der Abendplan sonst nichts mehr davon erzählt:
         # für heute, oder für morgen, nachdem der Abendplan schon raus ist
-        if d == jetzt.date() or z["gesendet"].get(f"{d.isoformat()}:abend"):
-            titel, text = self._plantext(p, d, w)
-            ntfy.senden(f"Angepasst: {titel}", text, "normal")
+        if geaendert and (d == jetzt.date() or z["gesendet"].get(f"{d.isoformat()}:abend")):
+            titel, text = self._aenderungstext(p, d, geaendert, w)
+            ntfy.senden(titel, text, "normal")
+
+    def _aenderungstext(self, p: dict, d: date, geaendert: list, w: Optional[dict] = None) -> tuple[str, str]:
+        """Push nach "Zeiten anpassen": nur die Fahrten, die sich geändert haben."""
+        wann = "Heute" if d == self.jetzt().date() else "Morgen"
+        if p["tag"]["frei"]:
+            return self._plantext(p, d, w)
+        teile = []
+        for r in geaendert:
+            titel = "Hinfahrt" if r == "hin" else "Rückfahrt"
+            if p.get(r):
+                teile.append(f"{titel}:\n{texte.kurzfassung(Verbindung.aus_dict(p[r]), self.regeln)}")
+            elif r == "rueck" and p.get("rueck_offen"):
+                teile.append("Rückfahrt: keine Zeit eingetragen, wird nicht überwacht.")
+            else:
+                teile.append(f"Keine passende {titel} gefunden, bitte selbst schauen.")
+        namen = " und ".join("Hinfahrt" if r == "hin" else "Rückfahrt" for r in geaendert)
+        return f"{wann}: {namen} angepasst", "\n\n".join(teile)
+
+    def _rueck_offen_nachtragen(self, p: dict, w: dict, d: date) -> None:
+        """Plan von vor "Rückfahrt nur mit eigener Zeit": Rückfahrt ohne deine Zeit
+        wieder herausnehmen. Hinfahrt und alles andere bleiben, nichts wird abgefragt."""
+        p["rueck_offen"] = self.rueck_offen(wuensche.tag(d, w))
+        if p["rueck_offen"]:
+            log.info("Rückfahrt %s ohne eigene Zeit: aus dem Plan genommen", d)
+            p["rueck"] = None
+            for k in ("optionen", "stadt", "tafel", "zusatz", "alternativen", "geprueft", "zug", "wahl", "zug_fehler"):
+                (p.get(k) or {}).pop("rueck", None)
+            p.setdefault("optionen", {})["rueck"] = []
+            _fehler_setzen(p)
 
     def _wahl_uebernehmen(self, z: dict, w: dict, d: date) -> None:
         p = z["plaene"][d.isoformat()]
@@ -272,7 +323,8 @@ class Dienst:
         stadt = takt.info(p.get("stadt", {}).get("hin"), hin, self.regeln) if hin else None
         wann = "Heute" if d == self.jetzt().date() else "Morgen"
         return texte.abendplan(t, hin, rueck, self.regeln, wann=wann,
-                               takt=f"{stadt['titel']}: {stadt['text']}" if stadt else "")
+                               takt=f"{stadt['titel']}: {stadt['text']}" if stadt else "",
+                               rueck_offen=bool(p.get("rueck_offen")))
 
     # ------------------------------------------------------------ Abendplan
     def _abendplan(self, z: dict, jetzt: datetime, morgen: date) -> None:
@@ -372,6 +424,26 @@ def starten() -> None:
     dienst = Dienst()
     threading.Thread(target=web.serve, daemon=True, name="web").start()
     dienst.laufen()
+
+
+def _fehler_setzen(p: dict) -> None:
+    """Fehler nur für Fahrten, die geplant werden sollten (Rückfahrt ohne Zeit zählt nicht)."""
+    if p["tag"]["frei"]:
+        p["fehler"] = ""
+        return
+    fehlt = "Hinfahrt" if not p.get("hin") else \
+        "Rückfahrt" if not p.get("rueck") and not p.get("rueck_offen") else ""
+    p["fehler"] = f"Keine passende {fehlt} gefunden." if fehlt else ""
+
+
+def _hin_eingaben(a: Optional[dict]) -> tuple:
+    """Was von den eigenen Zeiten die Hinfahrt bestimmt."""
+    a = a or {}
+    return a.get("an"), a.get("campus")
+
+
+def _schluessel(v: Optional[dict]) -> Optional[str]:
+    return Verbindung.aus_dict(v).schluessel() if v else None
 
 
 def _erster_anderer(neu, alt):

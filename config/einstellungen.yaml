@@ -69,6 +69,9 @@ hinweg:
 
 rueckweg:
   frueheste_abfahrt_nach_ende_minuten: 5   # Zeit vom Hörsaal zur Haltestelle
+  # true: Rückfahrt erst planen, wenn du im Dashboard eine Zeit einträgst
+  # ("Zurück ab" oder "Spätestens zu Hause um"). false: automatisch ab Vorlesungsende.
+  nur_mit_eigener_zeit: true
 
 # Weitere Verbindungen zur Auswahl im Dashboard (wischen).
 optionen:

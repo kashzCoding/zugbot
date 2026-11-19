@@ -118,13 +118,17 @@ def anpassen(d: date, an=None, rueck_ab=None, campus=None, heim_bis=None) -> Opt
 
     def f(w):
         w.setdefault("anpassungen", {})
+        vorher = w["anpassungen"].get(d.isoformat()) or {}
         if leer:
             w["anpassungen"].pop(d.isoformat(), None)
         else:
             w["anpassungen"][d.isoformat()] = a
-        # Neue Zeiten = neue Optionen, eine alte Wahl passt dann nicht mehr
-        for r in ("hin", "rueck"):
+        # Neue Zeiten = neue Optionen, eine alte Wahl passt dann nicht mehr.
+        # Bleiben Ankunft und Campus gleich, bleibt auch die Hinfahrt (und ihre Wahl).
+        hin_gleich = (vorher.get("an"), vorher.get("campus")) == (a["an"], a["campus"])
+        for r in (("rueck",) if hin_gleich else ("hin", "rueck")):
             w.get("wahl", {}).pop(f"{d.isoformat()}:{r}", None)
+        w.get("zug", {}).pop(f"{d.isoformat()}:rueck", None)
 
     _aendern(f)
     return None if leer else a
@@ -200,14 +204,16 @@ def tag(d: date, w: Optional[dict] = None, plan: Optional[dict] = None) -> Tag:
 
     an, rueck = zeit(a.get("an")), zeit(a.get("rueck_ab"))
     heim = zeit(a.get("heim_bis"))
+    nur_eigene = bool(config.einstellungen()["rueckweg"].get("nur_mit_eigener_zeit"))
     if t.frei:
         campus = a.get("campus")
-        if not (an and (rueck or heim) and campus):
-            t.warnungen.append("Eigene Zeiten an einem freien Tag brauchen Ankunft, Rückfahrt und Campus.")
+        if not (an and campus and (rueck or heim or nur_eigene)):
+            t.warnungen.append("Eigene Zeiten an einem freien Tag brauchen Ankunft und Campus"
+                               + ("." if nur_eigene else " und Rückfahrt."))
             t.eigene = a     # gespeichert, damit der Dienst nicht immer wieder neu plant
             return t
         # Freier Tag, du willst trotzdem hin: ein Termin aus deinen Zeiten
-        t = Tag(d, frei=False, termine=[Termin("Eigene Zeit", "", an, rueck or heim, campus)],
+        t = Tag(d, frei=False, termine=[Termin("Eigene Zeit", "", an, rueck or heim or an, campus)],
                 campus=campus, warnungen=t.warnungen)
     t.eigene = a
     t.ziel_beginn = an
@@ -216,6 +222,6 @@ def tag(d: date, w: Optional[dict] = None, plan: Optional[dict] = None) -> Tag:
     if a.get("campus"):
         t.campus = a["campus"]
     beginn = an or t.erster.von
-    if rueck is None and heim is None and t.letzter.bis <= beginn:
+    if rueck is None and heim is None and not nur_eigene and t.letzter.bis <= beginn:
         t.warnungen.append(f"Deine Termine enden vor {beginn:%H:%M}, bitte auch die Rückfahrt-Zeit setzen.")
     return t

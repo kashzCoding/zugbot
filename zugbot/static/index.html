@@ -248,6 +248,8 @@
   .schnell button { border: 0; background: var(--chip); color: var(--text); border-radius: 999px; padding: 7px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
   .schnell button[aria-pressed="true"] { background: var(--akzent); color: #fff; }
   .knoepfe { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rzeile { margin-top: 4px; }
+  .rzeile .link { font-size: 13px; padding: 6px 0; }
   .meldung { font-size: 13px; font-weight: 600; min-height: 1em; }
   .meldung.fehler { color: var(--orange-text); }
   .meldung.ok { color: var(--gruen); }
@@ -340,6 +342,7 @@ function akzent(d) {
   if (k.leer) {
     setzen(el, `<div class="oben">Heute</div><div class="gross">${esc(k.leer)}</div>`
       + (k.zeile ? `<div class="zeile">${esc(k.zeile)}</div>` : ""));
+    if (k.r) el.dataset.sprung = `${k.datum}:${k.r}`; else delete el.dataset.sprung;
     return;
   }
   const balken = k.segmente.map(s => `<span class="${s.verspaetet ? "spaet" : ""}" style="flex:${s.anteil}"></span>`).join("");
@@ -454,9 +457,28 @@ function tafelHtml(t, datum, richtung) {
       alle && t.zuege.length > TAFEL_ZEILEN ? `<button type="button" class="link" data-tafelmehr="${esc(key)}">Weniger</button>` : ""}</div>`;
 }
 
+const rueckEntwurf = {};   // getippte, noch nicht gesendete Rückfahrtzeit je Tag (überlebt das Neuzeichnen)
+function rueckOffenKarte(f, datum) {
+  const id = `rz-${esc(datum)}`, wert = rueckEntwurf[datum] || "";
+  const inhalt = f.ausstehend ? `<div class="klein" style="margin-top:8px">Wird berechnet …</div>` :
+    `<div class="klein" style="margin-top:6px">Noch keine Zeit eingetragen. Sobald du sie einträgst, suche ich die Verbindung und überwache sie.</div>
+    <div class="formular">
+      <label>Zurück ab <input type="time" id="${id}" data-rentwurf="${esc(datum)}" value="${esc(wert)}"></label>
+      ${f.vorschlaege.length ? `<div class="schnell" aria-label="Schnellwahl für Zurück ab">${f.vorschlaege.map(v =>
+        `<button type="button" data-rzeit="${esc(v.zeit)}" data-datum="${esc(datum)}" aria-pressed="${v.zeit === wert}">${esc(v.text)}</button>`).join("")}</div>` : ""}
+      <div class="knoepfe"><button class="knopf primaer" type="button" data-rberechnen="${esc(datum)}">Berechnen</button></div>
+    </div>`;
+  return `<section class="karte" id="fahrt-${esc(datum)}-rueck"><h2>Rückfahrt</h2>${inhalt}</section>`;
+}
+function rueckZeitZeile(f, datum) {
+  return f.rueck_zeit ? `<div class="klein rzeile">${esc(f.rueck_zeit)} ·
+    <button class="link" type="button" data-rloeschen="${esc(datum)}">Zeit löschen</button></div>` : "";
+}
+
 function fahrtKarte(f, datum) {
+  if (f.rueck_offen) return rueckOffenKarte(f, datum);
   if (f.zu) return zugeklappt(f, datum);
-  if (!f.optionen.length) return `<section class="karte"><h2>${esc(f.titel)}</h2><div class="stoerung" style="margin-top:10px">${esc(f.fehlt)}</div></section>`;
+  if (!f.optionen.length) return `<section class="karte"><h2>${esc(f.titel)}</h2>${rueckZeitZeile(f, datum)}<div class="stoerung" style="margin-top:10px">${esc(f.fehlt)}</div></section>`;
   const o = gezeigt(f, datum), key = `${datum}:${f.richtung}`;
   const chips = f.optionen.length > 1 ? `<div class="chips" role="group" aria-label="Optionen">${f.optionen.map(x =>
     `<button type="button" class="zchip ${x.gewaehlt || x.wird_gewaehlt ? "ueberwacht" : ""}" aria-pressed="${x === o}"
@@ -474,7 +496,7 @@ function fahrtKarte(f, datum) {
   const zuKnopf = f.aufklappbar ? `<button type="button" class="link" data-zu="${esc(key)}">Einklappen</button>` :
     (f.optionen.length > 1 ? `<span class="klein">${f.optionen.length} Optionen</span>` : "");
   return `<section class="karte" id="fahrt-${esc(datum)}-${esc(f.richtung)}"><div class="zeile-kopf"><h2>${esc(f.titel)}</h2>${zuKnopf}</div>
-    ${chips}
+    ${rueckZeitZeile(f, datum)}${chips}
     <div class="auswahl" data-key="${esc(key)}">
       ${chips ? "" : `<div class="gross-zeit">${esc(o.ab)}<span class="pfeil">→</span>${esc(o.an)}</div>`}
       <div class="klein">${chips ? `an ${esc(o.an)} · ` : ""}${esc(o.meta)}${f.optionen.length > 1 ? ` <span class="wisch-hinweis">· wischen für andere</span>` : ""}</div>
@@ -684,6 +706,31 @@ document.addEventListener("click", async ev => {
     }
     return;
   }
+  const rz = ev.target.closest("[data-rzeit]");
+  if (rz) {
+    rueckEntwurf[rz.dataset.datum] = rz.dataset.rzeit;
+    const feld = document.getElementById(`rz-${rz.dataset.datum}`);
+    if (feld) feld.value = rz.dataset.rzeit;
+    rz.parentElement.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === rz));
+    return;
+  }
+  const rb = ev.target.closest("[data-rberechnen], [data-rloeschen]");
+  if (rb) {
+    const datum = rb.dataset.rberechnen || rb.dataset.rloeschen, loeschen = !!rb.dataset.rloeschen;
+    const zeit = loeschen ? "" : (document.getElementById(`rz-${datum}`) || {}).value || "";
+    if (!loeschen && !zeit) { meldungBei(rb, "Bitte erst eine Uhrzeit eintragen."); return; }
+    const vorher = rb.textContent;
+    rb.disabled = true; rb.textContent = loeschen ? "Wird gelöscht …" : "Wird berechnet …";
+    try {
+      await senden("api/anpassen", {datum, nur_rueck: true, rueck_ab: zeit});
+      delete rueckEntwurf[datum];
+      beschleunigen();
+    } catch (e) {
+      rb.disabled = false; rb.textContent = vorher;
+      meldungBei(rb, e.message);
+    }
+    return;
+  }
   const sp = ev.target.closest("#akzent[data-sprung]");
   if (sp && !ev.target.closest("button")) { zurFahrt(sp.dataset.sprung); return; }
   const w = ev.target.closest("[data-waehlen]");
@@ -751,6 +798,10 @@ document.getElementById("a-schliessen").addEventListener("click", () => { docume
 try { const t = sessionStorage.getItem("zugbot-tag"); if (t !== null) tagIndex = +t; } catch (e) {}
 
 /* Nach einer Änderung kurz öfter nachfragen, bis der Dienst sie übernommen hat */
+document.addEventListener("input", ev => {
+  const f = ev.target.closest("[data-rentwurf]");
+  if (f) rueckEntwurf[f.dataset.rentwurf] = f.value;
+});
 function beschleunigen() { schnell = 20; planen(1500); }
 function planen(ms) { clearTimeout(timer); timer = setTimeout(laden, ms); }
 

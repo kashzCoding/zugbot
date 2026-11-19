@@ -41,6 +41,7 @@ BILDER = {
     "figtree.woff2": "font/woff2",         # Schrift selbst ausliefern statt von Google
 }
 MAX_ANFRAGE_BYTES = 4096
+ABENDS_ERLEDIGT_AB = 21   # ab dann zeigt die blaue Box bei offener Rückfahrt "erledigt" und morgen
 TAGE_ANPASSEN = 8     # so viele Tage ab heute zeigt "Zeiten anpassen"
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
           "September", "Oktober", "November", "Dezember"]
@@ -389,7 +390,14 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
         if push > jetzt:
             daten["push"] = f"Push um {push:%H:%M}"
     haupt = _hauptfahrt(p, jetzt)
+    eigene = p["tag"].get("eigene") or {}
+    wunsch = wuensche.anpassung(w, d) or {}       # schon gespeichert, vom Dienst evtl. noch nicht geplant
     for r, titel in (("hin", "Hinfahrt"), ("rueck", "Rückfahrt")):
+        if r == "rueck" and p.get("rueck_offen"):
+            daten["fahrten"].append({"richtung": r, "titel": titel, "zu": False, "optionen": [],
+                                     "rueck_offen": True, "vorschlaege": _rueck_vorschlaege(p, jetzt),
+                                     "ausstehend": bool(wunsch.get("rueck_ab") or wunsch.get("heim_bis"))})
+            continue
         fehlt = "" if p.get(r) else (p.get("fehler") or f"Keine passende {titel} gefunden.")
         if r != haupt and f"{d.isoformat()}:{r}" not in offen and p.get(r):
             v = Verbindung.aus_dict(p[r])
@@ -400,12 +408,29 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
                                               "vorbei": v.an < jetzt}})
             continue
         opt = optionen(p, d, r, regeln, jetzt, w)
+        if r == "rueck" and (eigene.get("rueck_ab") or eigene.get("heim_bis")):
+            daten["rueck_zeit"] = (f"Zurück ab {eigene['rueck_ab']}" if eigene.get("rueck_ab")
+                                   else f"Zu Hause bis {eigene['heim_bis']}")
         daten["fahrten"].append({"richtung": r, "titel": titel, "optionen": opt, "zu": False,
+                                 "rueck_zeit": daten.get("rueck_zeit", "") if r == "rueck" else "",
                                  "aufklappbar": r != haupt, "tafel": _tafel(p, d, r, jetzt),
                                  "tafel_ladbar": d == jetzt.date() and bool(p.get(r))
                                                  and Verbindung.aus_dict(p[r]).an > jetzt,
                                  "fehlt": fehlt if not opt else ""})
     return daten
+
+
+def _rueck_vorschlaege(p: dict, jetzt: datetime) -> list[dict]:
+    """Schnellwahl auf der Rückfahrt-Karte: Vorlesungsende + Weg zur Haltestelle, dann
+    halbstündlich. Ohne echte Vorlesung (nur eigene Zeit) gibt es kein Ende zum Vorschlagen."""
+    termine = [t for t in p["tag"].get("termine") or [] if t["titel"] != "Eigene Zeit"]
+    if not termine:
+        return []
+    ende = max(datetime.fromisoformat(t["bis"]) for t in termine)
+    ende += timedelta(minutes=config.einstellungen()["rueckweg"]["frueheste_abfahrt_nach_ende_minuten"])
+    zeiten = [ende + timedelta(minutes=m) for m in (0, 30, 60, 90)]
+    return [{"zeit": f"{z:%H:%M}", "text": f"{z:%H:%M}" + (" · nach Vorlesung" if z == ende else "")}
+            for z in zeiten if z.date() == ende.date() and z > jetzt]
 
 
 def anpassen_daten(z: dict, w: dict, heute) -> dict:
@@ -507,14 +532,19 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
                              for a in _alternativen(p_heute, r, jetzt)]})
             break
     if kopf is None:
+        kopf_extra = {}
         if p_heute and p_heute["tag"]["frei"]:
             leer = "Heute frei"
+        elif p_heute and p_heute.get("rueck_offen") and jetzt.hour < ABENDS_ERLEDIGT_AB:
+            leer = "Rückfahrt noch offen"
+            kopf_extra = {"zeile": "Tippen und Zeit eintragen", "datum": heute.isoformat(), "r": "rueck"}
         elif p_heute:
             leer = "Für heute erledigt"
         else:
             leer = "Noch kein Plan"
         naechste = zustand.verbindung(z, morgen, "hin")
-        kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab Gelnhausen" if naechste else ""}
+        kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab Gelnhausen" if naechste else "",
+                **kopf_extra}
 
     tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w, offen),
             tag_daten(p_morgen, morgen, "Morgen", regeln, e, jetzt, w, offen)]
@@ -532,7 +562,7 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
                       for m in reversed(ntfy.meldungen()) if m["um"][:10] == heute.isoformat()][:12],
         "tage": tage,
         # Abends ist morgen interessanter als ein erledigtes Heute
-        "start_tag": 0 if "leer" not in kopf else 1,
+        "start_tag": 0 if "leer" not in kopf or kopf.get("r") else 1,
         "anpassen": anpassen_daten(z, w, heute),
     }
 
@@ -561,6 +591,15 @@ def anpassen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     if daten.get("zuruecksetzen"):
         wuensche.zuruecksetzen(d)
         return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
+    if daten.get("nur_rueck"):
+        # Rückfahrt-Karte: nur "Zurück ab" setzen oder löschen, der Rest bleibt
+        alt = wuensche.anpassung(wuensche.laden(), d) or {}
+        rueck = str(daten.get("rueck_ab") or "")
+        a = wuensche.anpassen(d, an=alt.get("an"), rueck_ab=rueck, campus=alt.get("campus"),
+                              heim_bis=alt.get("heim_bis") if rueck else None)
+        if not rueck:
+            return {"ok": True, "text": "Rückfahrtzeit gelöscht."}
+        return {"ok": True, "text": f"Rückfahrt ab {wuensche.pruefen(d, rueck_ab=rueck, heute=jetzt.date())['rueck_ab']}, wird berechnet."}
     a = wuensche.anpassen(d, an=daten.get("an"), rueck_ab=daten.get("rueck_ab"), campus=daten.get("campus"),
                           heim_bis=daten.get("heim_bis"))
     if a is None:

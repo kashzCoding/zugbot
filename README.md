@@ -101,9 +101,16 @@ zugbot anpassen                                          # alle eigenen Zeiten a
 - **Da sein um** zählt wie ein Vorlesungsbeginn: Mit den üblichen 5 min Puffer bist du
   bei 10:00 um 9:55 am Halt.
 - **Zurück ab** ist die früheste Abfahrt am Campus-Halt (ohne Zuschlag).
+- **Die Rückfahrt plant der Bot erst, wenn du „Zurück ab“ oder „Spätestens zu Hause um“
+  einträgst.** Am einfachsten direkt auf der Rückfahrt-Karte im Dashboard (Zeitfeld,
+  Schnellwahl nach Vorlesungsende, „Berechnen“). „Zeit löschen“ nimmt sie wieder heraus,
+  Ankunft und Campus bleiben. Zurück zum alten Verhalten (automatisch ab Vorlesungsende):
+  `rueckweg.nur_mit_eigener_zeit: false` in `config/einstellungen.yaml`.
+- Nach einer Änderung kommt ein Push nur zu der Fahrt, die sich geändert hat. Ändert sich
+  nur die Rückfahrtzeit, bleibt die Hinfahrt, wie sie ist.
 - **Spätestens zu Hause um** sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür vor Vorlesungsende gehen musst (`zugbot anpassen --datum heute --heim 17:35`).
 - **Campus** überschreibt den Campus aus dem Raum.
-- An einem freien Tag braucht es alle drei Angaben, dann plant der Bot trotzdem.
+- An einem freien Tag braucht es Ankunft und Campus, dann plant der Bot trotzdem.
 - Geht für heute bis in 14 Tagen. Der Dienst übernimmt die Änderung innerhalb von Sekunden
   (heute/morgen); spätere Tage plant er wie immer am Vortag.
 
