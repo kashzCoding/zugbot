@@ -476,8 +476,12 @@ function rueckZeitZeile(f, datum) {
     <button class="link" type="button" data-rloeschen="${esc(datum)}">Zeit löschen</button></div>` : "";
 }
 
+let rueckZu = new Set();  // offene Rückfahrten, die du eingeklappt hast, obwohl sie die Hauptfahrt sind
+try { rueckZu = new Set(JSON.parse(sessionStorage.getItem("zugbot-rueckzu") || "[]")); } catch (e) {}
+function rueckZuMerken() { try { sessionStorage.setItem("zugbot-rueckzu", JSON.stringify([...rueckZu])); } catch (e) {} }
+
 function fahrtKarte(f, datum) {
-  if (f.zu) return zugeklappt(f, datum);
+  if (f.zu || (f.rueck_offen && rueckZu.has(`${datum}:rueck`))) return zugeklappt(f, datum);
   if (f.rueck_offen) return rueckOffenKarte(f, datum);
   if (!f.optionen.length) return `<section class="karte"><h2>${esc(f.titel)}</h2>${rueckZeitZeile(f, datum)}<div class="stoerung" style="margin-top:10px">${esc(f.fehlt)}</div></section>`;
   const o = gezeigt(f, datum), key = `${datum}:${f.richtung}`;
@@ -680,6 +684,10 @@ document.addEventListener("click", async ev => {
   }
   const auf = ev.target.closest("[data-auf]"), zu = ev.target.closest("[data-zu]");
   if (auf || zu) {
+    const key = (auf || zu).dataset[auf ? "auf" : "zu"];
+    if (key.endsWith(":rueck") && (auf ? rueckZu.delete(key) : !rueckZu.has(key) && rueckZu.add(key))) {
+      rueckZuMerken(); neuZeichnen();      // offene Rückfahrt: auf/zu sofort, ohne Abruf
+    }
     if (auf) { offen.add(auf.dataset.auf); auf.querySelector(".mehr").textContent = "lädt …"; }
     else offen.delete(zu.dataset.zu);
     try { sessionStorage.setItem("zugbot-offen", JSON.stringify([...offen])); } catch (e) {}
@@ -751,6 +759,7 @@ function zurFahrt(key) {
   const [datum, richtung] = key.split(":");
   tagIndex = 0;
   try { sessionStorage.setItem("zugbot-tag", 0); } catch (e) {}
+  if (rueckZu.delete(key)) rueckZuMerken();
   const f = daten && daten.tage[0].fahrten.find(x => x.richtung === richtung);
   if (f && f.zu) {
     offen.add(key);

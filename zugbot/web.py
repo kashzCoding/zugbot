@@ -399,7 +399,7 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
             # eingeklappt wie eine Nebenfahrt: bis du angekommen bist oder sie aufklappst
             zu = r != haupt and f"{d.isoformat()}:{r}" not in offen
             daten["fahrten"].append({"richtung": r, "titel": titel, "zu": zu, "optionen": [],
-                                     "aufklappbar": r != haupt,
+                                     "aufklappbar": True,     # auch als Hauptfahrt (Seite merkt sich "zu")
                                      "kurz": {"text": "wird berechnet …" if ausstehend else "noch keine Zeit",
                                               "vorbei": False, "lage": ""},
                                      "rueck_offen": True,

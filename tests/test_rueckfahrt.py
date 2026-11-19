@@ -153,3 +153,6 @@ def test_offene_rueckfahrt_einklappbar(d):
     assert rueck(frozenset())["zu"] and rueck(frozenset())["kurz"]["text"] == "noch keine Zeit"
     auf = rueck(frozenset({f"{d.isoformat()}:rueck"}))
     assert not auf["zu"] and auf["aufklappbar"] and auf["rueck_offen"]
+    nach = datetime(d.year, d.month, d.day, 12, 0, tzinfo=TZ)    # Hinfahrt vorbei: Rückfahrt ist Hauptfahrt
+    haupt = next(f for f in web.tag_daten(p, d, "Heute", x.regeln, x.e, nach, {})["fahrten"] if f["richtung"] == "rueck")
+    assert not haupt["zu"] and haupt["aufklappbar"]
