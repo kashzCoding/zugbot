@@ -157,3 +157,15 @@ def test_vergleich_zur_eigenen_ankunft():
     assert web._vergleich("16:23", v) == "8 min früher"
     assert web._vergleich("16:31", v) == "gleich"
     assert web._vergleich("", v) == "" and web._vergleich(None, v) == ""
+
+
+def test_seite_mit_version_und_etag(basis):
+    with urllib.request.urlopen(f"{basis}/{SCHLUESSEL}/") as r:
+        seite, etag = r.read().decode(), r.headers["ETag"]
+        assert "no-cache" in r.headers["Cache-Control"]
+    version = web.seite_mit_version()[0]
+    assert f'SEITEN_VERSION = "{version}"' in seite and etag == f'"{version}"'
+    anfrage = urllib.request.Request(f"{basis}/{SCHLUESSEL}/", headers={"If-None-Match": etag})
+    with pytest.raises(urllib.error.HTTPError) as fehler:
+        urllib.request.urlopen(anfrage)
+    assert fehler.value.code == 304

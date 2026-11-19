@@ -142,3 +142,14 @@ def test_alter_plan_verliert_rueckfahrt_ohne_zeit(d):
     x._rueck_offen_nachtragen(p, {}, d)
     assert p["rueck"] is None and p["rueck_offen"] and p["hin"] and p["fehler"] == ""
     assert x.planer.aufrufe == []
+
+
+def test_offene_rueckfahrt_einklappbar(d):
+    x = neuer_dienst(d)
+    p = x.tag_planen(d, {})
+    jetzt = x.jetzt()          # vor der Hinfahrt: Hinfahrt ist die Hauptfahrt
+    rueck = lambda offen: next(f for f in web.tag_daten(p, d, "Morgen", x.regeln, x.e, jetzt, {}, offen)["fahrten"]
+                               if f["richtung"] == "rueck")
+    assert rueck(frozenset())["zu"] and rueck(frozenset())["kurz"]["text"] == "noch keine Zeit"
+    auf = rueck(frozenset({f"{d.isoformat()}:rueck"}))
+    assert not auf["zu"] and auf["aufklappbar"] and auf["rueck_offen"]

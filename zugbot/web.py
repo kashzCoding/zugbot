@@ -14,6 +14,7 @@ Schlüssel in der .env (z. B. am Mac zum Testen) liegt sie unter /.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import logging
@@ -394,9 +395,18 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
     wunsch = wuensche.anpassung(w, d) or {}       # schon gespeichert, vom Dienst evtl. noch nicht geplant
     for r, titel in (("hin", "Hinfahrt"), ("rueck", "Rückfahrt")):
         if r == "rueck" and p.get("rueck_offen"):
-            daten["fahrten"].append({"richtung": r, "titel": titel, "zu": False, "optionen": [],
-                                     "rueck_offen": True, "vorschlaege": _rueck_vorschlaege(p, jetzt),
-                                     "ausstehend": bool(wunsch.get("rueck_ab") or wunsch.get("heim_bis"))})
+            ausstehend = bool(wunsch.get("rueck_ab") or wunsch.get("heim_bis"))
+            # eingeklappt wie eine Nebenfahrt: bis du angekommen bist oder sie aufklappst
+            zu = r != haupt and f"{d.isoformat()}:{r}" not in offen
+            daten["fahrten"].append({"richtung": r, "titel": titel, "zu": zu, "optionen": [],
+                                     "aufklappbar": r != haupt,
+                                     "kurz": {"text": "wird berechnet …" if ausstehend else "noch keine Zeit",
+                                              "vorbei": False, "lage": ""},
+                                     "rueck_offen": True,
+                                     # für eine noch alte Seite im Zwischenspeicher
+                                     "fehlt": "Noch keine Rückfahrtzeit. Bitte Seite neu laden, um sie einzutragen.",
+                                     "vorschlaege": _rueck_vorschlaege(p, jetzt),
+                                     "ausstehend": ausstehend})
             continue
         fehlt = "" if p.get(r) else (p.get("fehler") or f"Keine passende {titel} gefunden.")
         if r != haupt and f"{d.isoformat()}:{r}" not in offen and p.get(r):
@@ -506,6 +516,14 @@ def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
     }
 
 
+def seite_mit_version() -> tuple[str, bytes]:
+    """index.html mit eingesetzter Version (Hash des Inhalts). Die Seite vergleicht sie
+    mit api/status und lädt sich nach einem Deploy selbst neu."""
+    roh = (STATIC / "index.html").read_bytes()
+    version = hashlib.sha256(roh).hexdigest()[:12]
+    return version, roh.replace(b"%%SEITEN_VERSION%%", version.encode())
+
+
 def dashboard_daten(offen: frozenset = frozenset()) -> dict:
     e = config.einstellungen()
     regeln = Regeln.aus_einstellungen(e)
@@ -564,6 +582,7 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
         # Abends ist morgen interessanter als ein erledigtes Heute
         "start_tag": 0 if "leer" not in kopf or kopf.get("r") else 1,
         "anpassen": anpassen_daten(z, w, heute),
+        "version": seite_mit_version()[0],
     }
 
 
@@ -678,9 +697,14 @@ class Handler(BaseHTTPRequestHandler):
             # mit Schrägstrich, damit "api/status" relativ dazu aufgelöst wird
             self._senden(301, "text/plain", b"", {"Location": f"/{self.schluessel}/"})
         elif pfad in ("/", "/index.html"):
-            # 10 min im Browser behalten: Öffnen geht schneller, ein Deploy wirkt spätestens dann
-            self._senden(200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes(),
-                         cache="private, max-age=600")
+            # Jedes Mal beim Pi nachfragen (ETag): unverändert kommt nur "304", nach
+            # einem Deploy sofort die neue Seite statt der alten aus dem Zwischenspeicher
+            version, seite = seite_mit_version()
+            etag = f'"{version}"'
+            if self.headers.get("If-None-Match") == etag:
+                self._senden(304, "text/html; charset=utf-8", b"", {"ETag": etag}, cache="private, no-cache")
+            else:
+                self._senden(200, "text/html; charset=utf-8", seite, {"ETag": etag}, cache="private, no-cache")
         elif pfad == "/api/wecker":
             try:
                 daten = json.dumps(wecker_daten(), ensure_ascii=False).encode()
