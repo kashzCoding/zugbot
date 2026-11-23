@@ -33,7 +33,13 @@ class Tag:
     eigene: Optional[dict] = None              # wie gespeichert, z. B. {"an": "10:00"}
     ziel_beginn: Optional[datetime] = None     # zählt wie Beginn des ersten Termins
     rueck_ab: Optional[datetime] = None        # Rückfahrt frühestens ab
-    heim_bis: Optional[datetime] = None        # spätestens dann in Gelnhausen
+    heim_bis: Optional[datetime] = None        # spätestens dann am Ziel der Rückfahrt
+    los_ab: Optional[datetime] = None          # Hinfahrt frühestens ab (statt "da sein um")
+    # Start/Ziel je Fahrt, falls nicht Standard (Orte: "gelnhausen", "campus", Schlüssel aus "orte")
+    hin_von: Optional[str] = None
+    hin_nach: Optional[str] = None
+    rueck_von: Optional[str] = None
+    rueck_nach: Optional[str] = None
 
     @property
     def erster(self) -> Optional[Termin]:

@@ -232,6 +232,25 @@ class Verbindung:
     ziel_zeit: Optional[datetime] = None   # Hinweg: spätestens hier ankommen
     neu_geplant: bool = False
     hinweis: str = ""
+    # Gewählter Start/Ziel-Ort ("eberstadt", "campus", "gelnhausen"); leer = Standard
+    # (Hinfahrt Gelnhausen -> Campus, Rückfahrt Campus -> Gelnhausen)
+    start: str = ""
+    ziel: str = ""
+
+    @property
+    def start_ort(self) -> str:
+        return self.start or ("gelnhausen" if self.richtung == "hin" else "campus")
+
+    @property
+    def ziel_ort(self) -> str:
+        return self.ziel or ("campus" if self.richtung == "hin" else "gelnhausen")
+
+    def wie(self, teile: list["Teil"], **aenderung) -> "Verbindung":
+        """Neue Verbindung mit denselben Eckdaten (Richtung, Campus, Ziel, Orte)."""
+        werte = dict(richtung=self.richtung, campus=self.campus, ziel_zeit=self.ziel_zeit,
+                     neu_geplant=self.neu_geplant, hinweis=self.hinweis, start=self.start, ziel=self.ziel)
+        werte.update(aenderung)
+        return Verbindung(teile, **werte)
 
     @property
     def abschnitte(self) -> list[Abschnitt]:
@@ -278,6 +297,8 @@ class Verbindung:
             "ziel_zeit": _iso(self.ziel_zeit),
             "neu_geplant": self.neu_geplant,
             "hinweis": self.hinweis,
+            "start": self.start,
+            "ziel": self.ziel,
         }
 
     @classmethod
@@ -289,4 +310,6 @@ class Verbindung:
             ziel_zeit=_zeit(d.get("ziel_zeit")),
             neu_geplant=d.get("neu_geplant", False),
             hinweis=d.get("hinweis", ""),
+            start=d.get("start", ""),
+            ziel=d.get("ziel", ""),
         )

@@ -51,7 +51,7 @@ def aktualisiere(bahn: Bahn, v: Verbindung, gleise=None) -> Verbindung:
         except ValueError as exc:
             log.warning("Aktualisieren fehlgeschlagen, behalte alten Stand: %s", exc)
             neue_teile.append(t)
-    neu = Verbindung(neue_teile, v.richtung, v.campus, v.ziel_zeit, v.neu_geplant, v.hinweis)
+    neu = v.wie(neue_teile)
     if gleise is not None:
         gleise.ergaenzen(neu)
     return neu

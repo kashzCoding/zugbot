@@ -29,6 +29,17 @@ def dauer(minuten: int) -> str:
     return f"{h} h {m} min" if h else f"{m} min"
 
 
+def ziel_name(v: Verbindung) -> str:
+    """Wohin die Fahrt geht: 'Gelnhausen', 'Lichtwiese', 'Eberstadt'."""
+    from .wuensche import ort_name
+    return ort_name(v.ziel_ort, v.campus)
+
+
+def ankunft_text(v: Verbindung) -> str:
+    """'zu Hause' auf dem Standard-Rückweg, sonst 'an Eberstadt'."""
+    return "zu Hause" if v.ziel_ort == "gelnhausen" else f"an {ziel_name(v)}"
+
+
 def campus_name(campus: str) -> str:
     return {"lichtwiese": "Lichtwiese", "stadtmitte": "Stadtmitte"}.get(campus, campus)
 
@@ -53,7 +64,7 @@ def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], 
     wt = WOCHENTAGE_LANG[tag.datum.weekday()]
     if tag.frei:
         return f"{wann} frei ({wt})", tag.grund.capitalize() if tag.grund else "Keine Termine."
-    titel = f"{wann} {wt}: {campus_name(tag.campus)}"
+    titel = f"{wann} {wt}: " + (ziel_name(hin) if hin else campus_name(tag.campus))
     teile = []
     if hin:
         teile.append(kurzfassung(hin, regeln))
@@ -64,15 +75,17 @@ def abendplan(tag: Tag, hin: Optional[Verbindung], rueck: Optional[Verbindung], 
     t = tag.erster
     if tag.ziel_beginn:
         teile.append(f"Eigene Zeit: da sein um {tag.ziel_beginn:%H:%M}")
+    if tag.los_ab:
+        teile.append(f"Eigene Zeit: los ab {tag.los_ab:%H:%M}")
     if t.titel != "Eigene Zeit":
         teile.append(f"Erster Termin {t.von:%H:%M} {t.titel}, {t.raum}")
     if rueck:
-        teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, zu Hause {rueck.an:%H:%M}"
+        teile.append(f"Rückfahrt {rueck.ab:%H:%M} ab {kurzname(rueck.fahrten[0].von.name)}, {ankunft_text(rueck)} {rueck.an:%H:%M}"
                      + (" (eigene Zeit)" if tag.rueck_ab or tag.heim_bis else ""))
     elif rueck_offen:
         teile.append("Rückfahrt: noch keine Zeit eingetragen, im Dashboard eintragen.")
     elif tag.heim_bis:
-        teile.append(f"Keine Rückfahrt gefunden, mit der du bis {tag.heim_bis:%H:%M} zu Hause bist.")
+        teile.append(f"Keine Rückfahrt gefunden, mit der du bis {tag.heim_bis:%H:%M} am Ziel bist.")
     teile += tag.warnungen
     return titel, "\n".join(teile)
 

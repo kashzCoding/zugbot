@@ -67,6 +67,41 @@ class Planer:
     def ueber_halte(self) -> list[str]:
         return [self.hid(k) for k in self.e["pflicht_ueber"]]
 
+    def ort_halte(self, ort: str, campus: str) -> list[str]:
+        """Halte eines Orts: Gelnhausen, der Campus des Tages oder ein Ort aus "orte"."""
+        if ort == "gelnhausen":
+            return [self.hid("gelnhausen")]
+        if ort == "campus":
+            return self.campus_halte(campus)
+        return [self.hid(k) for k in self.e["orte"][ort]["halte"]]
+
+    def ziel_halte(self, v: Verbindung) -> list[str]:
+        return self.ort_halte(v.ziel_ort, v.campus)
+
+    @staticmethod
+    def strecke(tag: Tag, richtung: str) -> tuple[str, str]:
+        """(Start, Ziel) der Fahrt an diesem Tag, Standard Gelnhausen <-> Campus."""
+        if richtung == "hin":
+            return tag.hin_von or "gelnhausen", tag.hin_nach or "campus"
+        return tag.rueck_von or "campus", tag.rueck_nach or "gelnhausen"
+
+    def ist_standard(self, tag: Tag, richtung: str) -> bool:
+        return self.strecke(tag, richtung) == (("gelnhausen", "campus") if richtung == "hin"
+                                               else ("campus", "gelnhausen"))
+
+    def _direkt(self, von: str, nach: str, campus: str, richtung: str, ziel_zeit: Optional[datetime],
+                **zeit) -> list[Verbindung]:
+        """Eine Suche je Start-/Zielhalt, von/nach Gelnhausen je über Frankfurt Hbf und Süd.
+        Für alle Wege außer dem Standard und für "Los ab"."""
+        ueber = self.ueber_halte() if "gelnhausen" in (von, nach) else [None]
+        start = "" if von == ("gelnhausen" if richtung == "hin" else "campus") else von
+        ziel = "" if nach == ("campus" if richtung == "hin" else "gelnhausen") else nach
+        return [Verbindung([t], richtung, campus, ziel_zeit, start=start, ziel=ziel)
+                for s in self.ort_halte(von, campus)
+                for z in self.ort_halte(nach, campus)
+                for u in ueber
+                for t in self._suche(s, z, ueber=u, anzahl=4, **zeit)]
+
     @staticmethod
     def _direkt_am_halt(t: Teil, halt_id: str, ende: bool) -> bool:
         """Stadtmitte: Tram/Bus soll direkt an Schloss bzw. Willy-Brandt-Platz
@@ -120,13 +155,25 @@ class Planer:
     # ------------------------------------------------------------ Hinweg
     def ziel_zeit(self, tag: Tag) -> datetime:
         h = self.e["hinweg"]
-        puffer = h["ankunftspuffer_minuten"] + h["gehzeit_minuten"].get(tag.campus, 0)
+        geh = h["gehzeit_minuten"].get(tag.campus, 0) if self.strecke(tag, "hin")[1] == "campus" else 0
+        puffer = h["ankunftspuffer_minuten"] + geh
         # eigene Ankunftszeit zählt wie ein Vorlesungsbeginn (gleicher Puffer)
         return (tag.ziel_beginn or tag.erster.von) - timedelta(minutes=puffer)
 
     def hinweg(self, tag: Tag) -> Ergebnis:
+        von, nach = self.strecke(tag, "hin")
+        if tag.los_ab:
+            # "Los ab": ab dann die früheste Ankunft, ohne Ziel-Zeit (keine Zu-spät-Warnung)
+            los = tag.los_ab
+            return self._waehle(
+                self._direkt(von, nach, tag.campus, "hin", None, abfahrt=los),
+                lambda v: bewertung.punkte_rueck(v, self.regeln),
+                lambda v: None if v.ab_plan >= los else f"Abfahrt {v.ab_plan:%H:%M} vor {los:%H:%M}",
+            )
         ziel = self.ziel_zeit(tag)
-        if tag.campus == "lichtwiese":
+        if not self.ist_standard(tag, "hin"):
+            kandidaten = self._direkt(von, nach, tag.campus, "hin", ziel, ankunft=ziel)
+        elif tag.campus == "lichtwiese":
             kandidaten = [
                 Verbindung([t], "hin", tag.campus, ziel)
                 for z in self.campus_halte("lichtwiese")
@@ -165,7 +212,9 @@ class Planer:
         ab = self.frueheste_rueckfahrt(tag)
         bis = tag.heim_bis      # "spätestens zu Hause um": rückwärts ab der Ankunft suchen
         zeit = {"ankunft": bis} if bis else {"abfahrt": ab}
-        if tag.campus == "lichtwiese":
+        if not self.ist_standard(tag, "rueck"):
+            kandidaten = self._direkt(*self.strecke(tag, "rueck"), tag.campus, "rueck", None, **zeit)
+        elif tag.campus == "lichtwiese":
             kandidaten = [
                 Verbindung([t], "rueck", tag.campus)
                 for start in self.campus_halte("lichtwiese")
@@ -275,7 +324,7 @@ class Planer:
         fahrten = v.fahrten
         idx = next((i for i, a in enumerate(fahrten) if a.von.basis == basis_id(halt_id)), len(fahrten))
         vorne = fahrten[:idx]
-        ziele = self.campus_halte(v.campus) if v.richtung == "hin" else [self.hid("gelnhausen")]
+        ziele = self.ziel_halte(v)
         kandidaten = []
         for z in ziele:
             for t in self._suche(halt_id, z, abfahrt=ab_plan - timedelta(minutes=1), anzahl=5):
@@ -283,7 +332,7 @@ class Planer:
                 if erste is None or erste.ab_plan != ab_plan or _nummer(erste.linie) != nummer:
                     continue
                 teile = ([Teil(vorne)] if vorne else []) + [t]
-                kandidaten.append(Verbindung(teile, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+                kandidaten.append(v.wie(teile, neu_geplant=True, hinweis=""))
         if not kandidaten:
             # Die Suche liefert nur die "besten" Verbindungen. Fährt kurz danach
             # etwas Besseres (S6 17:05, RE 60 17:07), kommt dein Zug nie vor.
@@ -312,8 +361,7 @@ class Planer:
         if not gut and vorne:
             # Der Weg zum Bahnhof (z. B. der Bus) ist für diesen Zug zu knapp. Du hast
             # den Zug aber gewählt: er gilt, den Weg davor lässt der Plan weg.
-            ohne = [Verbindung(k.teile[1:], k.richtung, k.campus, k.ziel_zeit, neu_geplant=True)
-                    for k in kandidaten]
+            ohne = [k.wie(k.teile[1:], neu_geplant=True) for k in kandidaten]
             gut = geht(ohne)
             selbst = bool(gut)
         if not gut:      # Anschluss nach Live-Stand weg: ab dort neu planen
@@ -376,14 +424,13 @@ class Planer:
             zug = Abschnitt.aus_motis(stueck)
             erster = ([Teil(vorne)] if vorne else []) + [Teil([zug])]
             if b in ziel_basen:          # dein Zug fährt direkt bis zum Ziel
-                kandidaten.append(Verbindung(erster, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+                kandidaten.append(v.wie(erster, neu_geplant=True, hinweis=""))
                 continue
             mindest = self.regeln.umstieg_darmstadt_min if bewertung.ist_darmstadt_hbf(zug.nach, self.regeln) \
                 else self.regeln.umstieg_min
             for z in ziele:
                 for t in self._suche(s["stopId"], z, abfahrt=zug.an + timedelta(minutes=mindest), anzahl=2):
-                    kandidaten.append(Verbindung(erster + [t], v.richtung, v.campus, v.ziel_zeit,
-                                                 neu_geplant=True))
+                    kandidaten.append(v.wie(erster + [t], neu_geplant=True, hinweis=""))
         log.info("Nehme-ich über Fahrt %s: %d Kandidaten", trip, len(kandidaten))
         return kandidaten
 
@@ -416,13 +463,13 @@ class Planer:
             else self.regeln.umstieg_min
         if bis_index > 0:
             zeit = zeit + timedelta(minutes=mindest)
-        ziele = self.campus_halte(v.campus) if v.richtung == "hin" else [self.hid("gelnhausen")]
+        ziele = self.ziel_halte(v)
         vorne = fahrten[:bis_index]
         kandidaten = []
         for z in ziele:
             for t in self._suche(halt.id, z, abfahrt=zeit, anzahl=4):
                 teile = ([Teil(vorne)] if vorne else []) + [t]
-                kandidaten.append(Verbindung(teile, v.richtung, v.campus, v.ziel_zeit, neu_geplant=True))
+                kandidaten.append(v.wie(teile, neu_geplant=True, hinweis=""))
         erg = self._waehle(
             kandidaten,
             lambda x: bewertung.punkte_rettung(x, self.regeln, v.ziel_zeit),
@@ -456,8 +503,8 @@ def mit_anschluss(kandidaten: list[Verbindung], plan: Verbindung, regeln: Regeln
         for i in range(1, len(pf)):
             if pf[i].von.basis != a.nach.basis:
                 continue
-            neu = Verbindung([Teil([a]), Teil(pf[i:])], plan.richtung, plan.campus, plan.ziel_zeit,
-                             hinweis=f"{a.linie} bis {kurzname(a.nach.name)}, dann weiter wie geplant")
+            neu = plan.wie([Teil([a]), Teil(pf[i:])], neu_geplant=False,
+                           hinweis=f"{a.linie} bis {kurzname(a.nach.name)}, dann weiter wie geplant")
             if not bewertung.pruefe(neu, regeln) and (not neu.ziel_zeit or neu.an <= neu.ziel_zeit):
                 ergebnis.append(neu)
             break

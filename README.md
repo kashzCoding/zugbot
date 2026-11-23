@@ -97,7 +97,15 @@ zugbot anpassen                                          # alle eigenen Zeiten a
 
 - **Da sein um** zählt wie ein Vorlesungsbeginn: Mit den üblichen 5 min Puffer bist du
   bei 10:00 um 9:55 am Halt.
+- **Oder: los ab** sucht die Hinfahrt ab dieser Abfahrtszeit statt über die Ankunft und nimmt
+  die, die am frühesten ankommt. Dann gibt es keine Warnung, wenn du nach Vorlesungsbeginn
+  ankommst. „Da sein um“ und „Los ab“ schließen sich aus.
 - **Zurück ab** ist die früheste Abfahrt am Campus-Halt (ohne Zuschlag).
+- **Andere Orte** (unter „Mehr“): Hin- und Rückfahrt können statt Gelnhausen bzw. Campus in
+  Eberstadt (Wartehalle) beginnen oder enden, z. B. Lichtwiese → Eberstadt oder
+  Eberstadt → Gelnhausen. Standard bleibt Gelnhausen ↔ Campus. Die Regel „über Frankfurt“
+  gilt nur für Fahrten von oder nach Gelnhausen. Weitere Orte stehen unter `orte:` in
+  `config/einstellungen.yaml` (Haltestelle mit `zugbot haltestellen` suchen).
 - **Die Rückfahrt plant der Bot erst, wenn du „Zurück ab“ oder „Spätestens zu Hause um“
   einträgst.** Am einfachsten direkt auf der Rückfahrt-Karte im Dashboard (Zeitfeld,
   Schnellwahl nach Vorlesungsende, „Berechnen“). „Zeit löschen“ nimmt sie wieder heraus,
@@ -107,7 +115,7 @@ zugbot anpassen                                          # alle eigenen Zeiten a
   nur die Rückfahrtzeit, bleibt die Hinfahrt, wie sie ist.
 - **Spätestens zu Hause um** sucht die späteste Rückfahrt, mit der du bis dahin da bist, auch wenn du dafür vor Vorlesungsende gehen musst (`zugbot anpassen --datum heute --heim 17:35`).
 - **Campus** überschreibt den Campus aus dem Raum.
-- An einem freien Tag braucht es Ankunft und Campus, dann plant der Bot trotzdem.
+- An einem freien Tag braucht es „Da sein um“ oder „Los ab“ und den Campus, dann plant der Bot trotzdem.
 - Geht für heute bis in 14 Tagen. Der Dienst übernimmt die Änderung innerhalb von Sekunden
   (heute/morgen); spätere Tage plant er wie immer am Vortag.
 

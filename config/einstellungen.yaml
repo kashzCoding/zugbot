@@ -25,6 +25,8 @@ haltestellen:
   lichtwiese_campus:  {name: "Darmstadt TU-Lichtwiese/Campus", id: "de-DELFI_de:06411:24730:2:2"}
   schloss:            {name: "Darmstadt Schloss", id: "de-DELFI_de:06411:16016"}
   willy_brandt_platz: {name: "Darmstadt Willy-Brandt-Platz", id: "de-DELFI_de:06411:24747"}
+  # Steig-ID wie beim Campus: die Gruppen-ID kennt Transitous hier nicht
+  eberstadt_wartehalle: {name: "Darmstadt-Eberstadt Wartehalle", id: "de-DELFI_de:06411:15921:1:1"}
 
 # Welche Haltestellen als Ziel (Hinweg) bzw. Start (Rückweg) pro Campus in Frage kommen.
 campus:
@@ -37,7 +39,14 @@ campus:
     anzeige: Stadtmitte
     halte: [schloss, willy_brandt_platz]
 
-# Route muss über einen dieser Halte führen:
+# Weitere Orte, die du pro Tag als Start oder Ziel wählen kannst ("Zeiten anpassen" > Mehr).
+# Standard bleibt Gelnhausen <-> Campus. Neuer Ort: Haltestelle oben eintragen, dann hier.
+orte:
+  eberstadt:
+    anzeige: Eberstadt
+    halte: [eberstadt_wartehalle]
+
+# Fahrten von oder nach Gelnhausen müssen über einen dieser Halte führen:
 pflicht_ueber: [frankfurt_hbf, frankfurt_sued]
 
 # Verbindungen, die auf den gefahrenen Abschnitten hier halten oder umsteigen,

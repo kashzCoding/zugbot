@@ -49,6 +49,9 @@ class FalscherPlaner:
     def stadtfahrten(self, *a):
         return None
 
+    def ist_standard(self, t, richtung):
+        return True
+
     def frueheste_rueckfahrt(self, t):
         return t.rueck_ab
 

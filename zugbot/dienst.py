@@ -91,9 +91,10 @@ class Dienst:
             if gewaehlt and not zustand.wahl_anwenden(p, r, gewaehlt):
                 log.info("Gewählte Verbindung %s gibt es nicht mehr, nehme die beste", gewaehlt)
         try:   # Takt der letzten Meile ist nur Zusatz: ohne ihn trotzdem planen
-            if "hin" in ergebnisse:
+            # Takt Darmstadt Hbf <-> Campus gibt es nur auf dem Standardweg
+            if "hin" in ergebnisse and self.planer.ist_standard(t, "hin") and not t.los_ab:
                 p["stadt"]["hin"] = self.planer.stadtfahrten("hin", t.campus, ergebnisse["hin"].optionen)
-            if "rueck" in ergebnisse:
+            if "rueck" in ergebnisse and self.planer.ist_standard(t, "rueck"):
                 p["stadt"]["rueck"] = self.planer.stadtfahrten("rueck", t.campus, ergebnisse["rueck"].optionen,
                                                                self.planer.frueheste_rueckfahrt(t))
         except BahnFehler as exc:
@@ -183,7 +184,7 @@ class Dienst:
         log.info("Eigene Zeiten für %s: %s", d, wuensche.anpassung(w, d))
         alt = z["plaene"].get(d.isoformat()) or {}
         hin_bleibt = bool(alt.get("hin")) and (
-            _hin_eingaben(alt["tag"].get("eigene")) == _hin_eingaben(wuensche.anpassung(w, d))
+            wuensche.hin_eingaben(alt["tag"].get("eigene")) == wuensche.hin_eingaben(wuensche.anpassung(w, d))
             and not alt["tag"].get("frei")
             or Verbindung.aus_dict(alt["hin"]).an < jetzt)   # schon gefahren: neue Planung kennt nur den Fahrplan
         p = self.tag_planen(d, w, ("rueck",) if hin_bleibt else ("hin", "rueck"))
@@ -434,12 +435,6 @@ def _fehler_setzen(p: dict) -> None:
     fehlt = "Hinfahrt" if not p.get("hin") else \
         "Rückfahrt" if not p.get("rueck") and not p.get("rueck_offen") else ""
     p["fehler"] = f"Keine passende {fehlt} gefunden." if fehlt else ""
-
-
-def _hin_eingaben(a: Optional[dict]) -> tuple:
-    """Was von den eigenen Zeiten die Hinfahrt bestimmt."""
-    a = a or {}
-    return a.get("an"), a.get("campus")
 
 
 def _schluessel(v: Optional[dict]) -> Optional[str]:

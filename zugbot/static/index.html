@@ -283,13 +283,23 @@
       <div class="klein" id="a-standard"></div>
       <label>Da sein um <input type="time" id="a-an"></label>
       <div class="schnell" id="a-schnell-an" aria-label="Schnellwahl für Da sein um"></div>
+      <label>Oder: los ab <input type="time" id="a-los"></label>
+      <div class="klein">Sucht ab dieser Zeit die Hinfahrt, die am frühesten ankommt. Keine Warnung, wenn du nach Vorlesungsbeginn ankommst.</div>
       <label>Zurück ab <input type="time" id="a-rueck"></label>
       <div class="schnell" id="a-schnell-rueck" aria-label="Schnellwahl für Zurück ab"></div>
       <details id="a-mehr">
-        <summary class="klein">Mehr: spätestens zu Hause, Campus</summary>
+        <summary class="klein">Mehr: andere Orte, spätestens am Ziel, Campus</summary>
         <div class="formular">
-          <label>Spätestens zu Hause um <input type="time" id="a-heim"></label>
-          <div class="klein">Sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür früher gehen musst.</div>
+          <div class="zwei">
+            <label>Hinfahrt von <select id="a-hin_von"></select></label>
+            <label>nach <select id="a-hin_nach"></select></label>
+          </div>
+          <div class="zwei">
+            <label>Rückfahrt von <select id="a-rueck_von"></select></label>
+            <label>nach <select id="a-rueck_nach"></select></label>
+          </div>
+          <label>Spätestens am Ziel um <input type="time" id="a-heim"></label>
+          <div class="klein">Sucht die späteste Rückfahrt, mit der du bis dahin am Ziel bist (Standard Gelnhausen), auch wenn du dafür früher gehen musst.</div>
           <label>Campus <select id="a-campus"><option value="">wie Stundenplan</option></select></label>
         </div>
       </details>
@@ -353,7 +363,7 @@ function akzent(d) {
   let oben = "Heute · " + k.richtung, gross, zeile;
   if (k.unterwegs && k.schritt) {       // unterwegs: nur der nächste Schritt
     const m = min(k.schritt.zeit_iso), s = k.schritt;
-    oben = `Heute · ${k.richtung} · zu Hause/am Ziel ${k.an}`.replace("zu Hause/am Ziel", k.richtung.startsWith("Rück") ? "zu Hause" : "am Ziel");
+    oben = `Heute · ${k.richtung} · ${k.zu_hause ? "zu Hause" : "am Ziel"} ${k.an}`;
     gross = m > 0 ? `In ${dauer(m)}` : "Jetzt";
     zeile = `<div class="schritt">${esc(s.titel)}</div>
       <div class="zeile"><span>${esc(s.text)}</span>${s.gleis ? `<span class="gleis-marke">${esc(s.gleis)}</span>` : ""}</div>`;
@@ -552,9 +562,14 @@ function neuZeichnen(fokus) {
 }
 
 /* ---------- Zeiten anpassen ---------- */
+const ORT_FELDER = ["hin_von", "hin_nach", "rueck_von", "rueck_nach"];
 function anpassen(d) {
   const a = d.anpassen, sel = document.getElementById("a-tag"), campus = document.getElementById("a-campus");
   if (campus.options.length === 1) a.campi.forEach(c => campus.add(new Option(c.name, c.wert)));
+  ORT_FELDER.forEach(f => {      // erster Eintrag = Standard (leer gespeichert)
+    const el = document.getElementById("a-" + f);
+    if (!el.options.length) (a.orte[f] || []).forEach((o, i) => el.add(new Option(o.name, i ? o.wert : "")));
+  });
   const alt = sel.value;
   const optionen = a.tage.map(t => `<option value="${esc(t.datum)}">${esc(t.name)}${t.eigene ? " (eigene Zeit)" : ""}</option>`).join("");
   if (sel.dataset.html !== optionen) {
@@ -594,10 +609,13 @@ function infoAnpassen() {
 function felderFuellen() {
   const e = (aktuellerTag() || {}).eigene || {};
   document.getElementById("a-an").value = e.an || "";
+  document.getElementById("a-los").value = e.los_ab || "";
   document.getElementById("a-rueck").value = e.rueck_ab || "";
   document.getElementById("a-heim").value = e.heim_bis || "";
   document.getElementById("a-campus").value = e.campus || "";
-  document.getElementById("a-mehr").open = !!(e.heim_bis || e.campus);   // Seltenes nur zeigen, wenn gesetzt
+  ORT_FELDER.forEach(f => document.getElementById("a-" + f).value = e[f] || "");
+  // Seltenes nur zeigen, wenn gesetzt
+  document.getElementById("a-mehr").open = !!(e.heim_bis || e.campus || ORT_FELDER.some(f => e[f]));
   infoAnpassen();
   meldung("", "");
 }
@@ -619,12 +637,16 @@ async function anpassenSenden(zurueck) {
   try {
     const inhalt = {datum: document.getElementById("a-tag").value};
     if (zurueck) inhalt.zuruecksetzen = true;
-    else Object.assign(inhalt, {an: document.getElementById("a-an").value, rueck_ab: document.getElementById("a-rueck").value,
-                                heim_bis: document.getElementById("a-heim").value,
-                                campus: document.getElementById("a-campus").value});
+    else {
+      Object.assign(inhalt, {an: document.getElementById("a-an").value, los_ab: document.getElementById("a-los").value,
+                             rueck_ab: document.getElementById("a-rueck").value,
+                             heim_bis: document.getElementById("a-heim").value,
+                             campus: document.getElementById("a-campus").value});
+      ORT_FELDER.forEach(f => inhalt[f] = document.getElementById("a-" + f).value);
+    }
     const j = await senden("api/anpassen", inhalt);
     meldung(j.text, "ok");
-    if (zurueck) ["a-an", "a-rueck", "a-heim", "a-campus"].forEach(id => document.getElementById(id).value = "");
+    if (zurueck) ["a-an", "a-los", "a-rueck", "a-heim", "a-campus", ...ORT_FELDER.map(f => "a-" + f)].forEach(id => document.getElementById(id).value = "");
     beschleunigen();
   } catch (e) {
     meldung(e.message, "fehler");
@@ -679,6 +701,7 @@ document.addEventListener("click", async ev => {
   if (p) {
     const [feld, wert] = p.dataset.setzen.split("|");
     document.getElementById(feld).value = wert;
+    if (feld === "a-an" && wert) document.getElementById("a-los").value = "";   // schließt "Los ab" aus
     geaendert();
     return;
   }
@@ -801,7 +824,10 @@ document.addEventListener("keydown", ev => {
 
 document.getElementById("a-tag").addEventListener("change", felderFuellen);
 function geaendert() { infoAnpassen(); meldung("Noch nicht gespeichert", ""); }
-["a-an", "a-rueck", "a-heim", "a-campus"].forEach(id => document.getElementById(id).addEventListener("input", geaendert));
+["a-an", "a-los", "a-rueck", "a-heim", "a-campus", ...ORT_FELDER.map(f => "a-" + f)].forEach(id => document.getElementById(id).addEventListener("input", geaendert));
+// "Da sein um" und "Los ab" schließen sich aus: wer das eine einträgt, leert das andere
+document.getElementById("a-an").addEventListener("input", () => { if (document.getElementById("a-an").value) document.getElementById("a-los").value = ""; });
+document.getElementById("a-los").addEventListener("input", () => { if (document.getElementById("a-los").value) document.getElementById("a-an").value = ""; });
 document.getElementById("a-speichern").addEventListener("click", () => anpassenSenden(false));
 document.getElementById("a-zurueck").addEventListener("click", () => anpassenSenden(true));
 document.getElementById("a-schliessen").addEventListener("click", () => { document.getElementById("anpassen").hidden = true; });

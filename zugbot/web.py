@@ -100,7 +100,7 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
         los_text = f"unterwegs, an {v.an:%H:%M}"
     else:
         los_text = "angekommen"
-    ziel = "zu Hause" if v.richtung == "rueck" else f"an {texte.kurzname(fahrten[-1].nach.name)}"
+    ziel = texte.ankunft_text(v) if v.richtung == "rueck" else f"an {texte.kurzname(fahrten[-1].nach.name)}"
     us = bewertung.umstiege(v, regeln)
 
     abschnitte = []
@@ -133,7 +133,8 @@ def fahrt_daten(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict:
     lage, lage_art = _lage(v, us)
     return {
         "lage": lage, "lage_art": lage_art,
-        "richtung": ("Hinfahrt, " if v.richtung == "hin" else "Rückfahrt, ") + texte.campus_name(v.campus),
+        "richtung": ("Hinfahrt, " if v.richtung == "hin" else "Rückfahrt, ") + texte.ziel_name(v),
+        "zu_hause": v.ziel_ort == "gelnhausen",
         "los": los_text,
         "ab": f"{v.ab:%H:%M}", "an": f"{v.an:%H:%M}",
         "von": texte.kurzname(fahrten[0].von.name), "gleis": _gleis_label(fahrten[0]),
@@ -356,7 +357,8 @@ def _tafel(p: dict, d, richtung: str, jetzt: datetime) -> Optional[dict]:
     if not t:
         return None      # zu alt, lieber nichts zeigen
     return {**t, "zuege": _mit_ankunft(t, p, d, richtung),
-            "ziel_name": "Gelnhausen" if richtung == "rueck" else "Campus",
+            "ziel_name": texte.ziel_name(Verbindung.aus_dict(p[richtung])) if p.get(richtung)
+                         else ("Gelnhausen" if richtung == "rueck" else "Campus"),
             "stand": datetime.fromisoformat(t["stand"]).strftime("%H:%M"),
             "fehler": (p.get("zug_fehler") or {}).get(richtung, "")}
 
@@ -420,7 +422,8 @@ def tag_daten(p: Optional[dict], d, name: str, regeln: Regeln, e: dict, jetzt: d
         opt = optionen(p, d, r, regeln, jetzt, w)
         if r == "rueck" and (eigene.get("rueck_ab") or eigene.get("heim_bis")):
             daten["rueck_zeit"] = (f"Zurück ab {eigene['rueck_ab']}" if eigene.get("rueck_ab")
-                                   else f"Zu Hause bis {eigene['heim_bis']}")
+                                   else f"Zu Hause bis {eigene['heim_bis']}" if not eigene.get("rueck_nach")
+                                   else f"Spätestens an {eigene['heim_bis']}")
         daten["fahrten"].append({"richtung": r, "titel": titel, "optionen": opt, "zu": False,
                                  "rueck_zeit": daten.get("rueck_zeit", "") if r == "rueck" else "",
                                  "aufklappbar": r != haupt, "tafel": _tafel(p, d, r, jetzt),
@@ -466,7 +469,10 @@ def anpassen_daten(z: dict, w: dict, heute) -> dict:
             "ausstehend": bool(p) and (p["tag"].get("eigene") != eigene),
         })
     return {"tage": tage,
-            "campi": [{"wert": k, "name": c.get("anzeige", k)} for k, c in e["campus"].items()]}
+            "campi": [{"wert": k, "name": c.get("anzeige", k)} for k, c in e["campus"].items()],
+            # je Feld: erster Eintrag ist der Standard
+            "orte": {f: [{"wert": o, "name": wuensche.ort_name(o)} for o in wuensche.erlaubte_orte(f)]
+                     for f in wuensche.ORT_FELDER}}
 
 
 def wecker_daten(jetzt: Optional[datetime] = None) -> dict:
@@ -561,7 +567,8 @@ def dashboard_daten(offen: frozenset = frozenset()) -> dict:
         else:
             leer = "Noch kein Plan"
         naechste = zustand.verbindung(z, morgen, "hin")
-        kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab Gelnhausen" if naechste else "",
+        kopf = {"leer": leer, "zeile": f"Morgen {naechste.ab:%H:%M} ab {texte.kurzname(naechste.fahrten[0].von.name)}"
+                if naechste else "",
                 **kopf_extra}
 
     tage = [tag_daten(p_heute, heute, "Heute", regeln, e, jetzt, w, offen),
@@ -614,13 +621,14 @@ def anpassen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
         # Rückfahrt-Karte: nur "Zurück ab" setzen oder löschen, der Rest bleibt
         alt = wuensche.anpassung(wuensche.laden(), d) or {}
         rueck = str(daten.get("rueck_ab") or "")
-        a = wuensche.anpassen(d, an=alt.get("an"), rueck_ab=rueck, campus=alt.get("campus"),
-                              heim_bis=alt.get("heim_bis") if rueck else None)
+        rest = {k: v for k, v in alt.items() if k not in ("rueck_ab", "heim_bis")}
+        a = wuensche.anpassen(d, rueck_ab=rueck, heim_bis=alt.get("heim_bis") if rueck else None, **rest)
         if not rueck:
             return {"ok": True, "text": "Rückfahrtzeit gelöscht."}
         return {"ok": True, "text": f"Rückfahrt ab {wuensche.pruefen(d, rueck_ab=rueck, heute=jetzt.date())['rueck_ab']}, wird berechnet."}
     a = wuensche.anpassen(d, an=daten.get("an"), rueck_ab=daten.get("rueck_ab"), campus=daten.get("campus"),
-                          heim_bis=daten.get("heim_bis"))
+                          heim_bis=daten.get("heim_bis"), los_ab=daten.get("los_ab"),
+                          **{k: daten.get(k) for k in wuensche.ORT_FELDER})
     if a is None:
         return {"ok": True, "text": "Wieder nach Stundenplan, wird neu geplant."}
     hinweis = "" if d <= jetzt.date() + timedelta(days=1) else \

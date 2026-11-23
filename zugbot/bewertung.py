@@ -34,6 +34,7 @@ class Regeln:
     kombi_max: int
     strafe_umstieg: float
     reserve_gewicht: float
+    heimat_id: Optional[str] = None     # Gelnhausen: nur Fahrten von/nach dort müssen über Frankfurt
 
     @classmethod
     def aus_einstellungen(cls, e: dict) -> "Regeln":
@@ -51,6 +52,7 @@ class Regeln:
             kombi_max=e["umstieg"].get("darmstadt_hbf_hoechstens_minuten", 30),
             strafe_umstieg=e["bewertung"]["strafe_pro_umstieg_minuten"],
             reserve_gewicht=e["bewertung"]["reserve_gewicht"],
+            heimat_id=basis_id(str(h["gelnhausen"]["id"])) if h.get("gelnhausen", {}).get("id") else None,
         )
 
 
@@ -139,7 +141,10 @@ def pruefe(v: Verbindung, regeln: Regeln, pflicht_frankfurt: bool = True) -> lis
                 gruende.append(f"{a.linie}: hält in {h.name}")
                 break
 
-    if pflicht_frankfurt:
+    # Die Frankfurt-Regel gehört zum Weg Gelnhausen <-> Darmstadt. Zwischen
+    # Eberstadt und Campus wäre sie unsinnig.
+    heimat = regeln.heimat_id is None or regeln.heimat_id in (fahrten[0].von.basis, fahrten[-1].nach.basis)
+    if pflicht_frankfurt and heimat:
         ueber_frankfurt = any(
             h.basis in regeln.pflicht_ueber_ids or _norm(h.name) in regeln.pflicht_ueber_namen
             for a in fahrten for h in _gefahrene_halte(a)
