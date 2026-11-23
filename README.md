@@ -2,7 +2,7 @@
 
 # Zug-Bot
 
-Plant anhand des Stundenplans die Fahrt Gelnhausen ↔ TU Darmstadt, überwacht sie live,
+Plant anhand des Stundenplans die Fahrt, überwacht sie live,
 plant bei Problemen neu und meldet sich per ntfy. Dazu ein Dashboard fürs Handy.
 Läuft auf dem Raspberry Pi Zero W (`tradingbot.tailed8a6b.ts.net`).
 
@@ -47,7 +47,7 @@ Abfahrt als pünktlich, vorher steht „Fahrplan“.
 | `zugbot/gleise.py` | Gleise aus der DB-API |
 | `zugbot/takt.py` | Welche Trams/Busse Hbf ↔ Campus passen, und in welchem Takt |
 | `zugbot/wuensche.py` | Eigene Zeiten pro Tag, gewählte Option |
-| `zugbot/ics_import.py` | TUCaN-Import |
+| `zugbot/ics_import.py` | Import |
 | `daten/zustand.json` | aktueller Plan, Optionen, gesendete Meldungen (zum Reinschauen) |
 | `daten/wuensche.json` | deine eigenen Zeiten und gewählten Verbindungen |
 | `deploy/` | systemd-Unit, logrotate, Installations- und Deploy-Skript |
@@ -56,9 +56,9 @@ Abfahrt als pünktlich, vorher steht „Fahrplan“.
 
 | Wann | Was |
 |---|---|
-| 21:30 | Plan für morgen neu berechnen, Push („Morgen Do: Lichtwiese …“ oder „Morgen frei“) |
+| 21:30 | Plan für morgen neu berechnen, Push („Morgen Do:  …“ oder „Morgen frei“) |
 | bis 60 min vor Abfahrt | alle 30 min Live-Stand abfragen (frühestens 6 h vorher) |
-| 60 min vor Abfahrt in Gelnhausen | Morgen-Push mit aktuellem Stand |
+| 60 min vor Abfahrt| Morgen-Push mit aktuellem Stand |
 | ab 60 min vor Abfahrt bis Ankunft | alle 5 min abfragen |
 | Ausfall, Anschluss weg, Umstieg zu knapp | neu planen ab deinem Punkt der Reise, Push mit hoher Priorität |
 | Gleiswechsel, deutlich spätere Abfahrt | Push mit normaler Priorität |
@@ -74,21 +74,18 @@ Abfahrt als pünktlich, vorher steht „Fahrplan“.
 
 - Nur Nahverkehr (Deutschlandticket). ICE/IC/EC/Fernbus werden schon bei der Suche ausgeschlossen
   und zur Sicherheit nochmal geprüft.
-- Immer über Frankfurt Hbf oder Frankfurt Süd. Nie Babenhausen oder Groß-Umstadt auf den
-  **gefahrenen** Abschnitten (die RB zur Lichtwiese fährt danach dorthin weiter, das ist egal).
-- Umstieg mind. 5 min, in Darmstadt Hbf mind. 7 min.
+- Umstieg mind. 5 min
 - Hinweg: späteste Abfahrt, die mit Puffer (5 min) vor dem ersten Termin ankommt.
   Weniger Umstiege und mehr Reserve geben Pluspunkte (`bewertung.py`, `punkte_hin`).
-- Stadtmitte: Zug und Tram/Bus werden getrennt gesucht und in Darmstadt Hbf zusammengesetzt.
-  Tram/Bus muss direkt an Schloss bzw. Willy-Brandt-Platz ankommen/abfahren.
-- Rückweg: früheste Ankunft in Gelnhausen nach Ende des letzten Termins (+5 min).
+- Stadtmitte: Zug und Tram/Bus werden getrennt gesucht und zusammengesetzt.
+- Rückweg: früheste Ankunft nach Ende des letzten Termins (+5 min).
 - Optionen: Neben der besten Verbindung bleiben bis zu 6 weitere zur Auswahl, höchstens
   90 min früher/später und höchstens 40 min länger (`optionen` in den Einstellungen).
   Pro Zugkombination nur eine; welche Tram/welcher Bus noch passt, zeigt die Takt-Anzeige.
 
 ## Eigene Zeiten für einen Tag
 
-Wenn du z. B. morgen erst um 10:00 an der Lichtwiese sein willst: im Dashboard unten
+Wenn du z. B. morgen erst um 10:00 da sein willst: im Dashboard unten
 „Zeiten anpassen“ aufklappen, Tag wählen, Zeiten eintragen, Speichern. Oder im Terminal:
 
 ```bash
@@ -108,7 +105,7 @@ zugbot anpassen                                          # alle eigenen Zeiten a
   `rueckweg.nur_mit_eigener_zeit: false` in `config/einstellungen.yaml`.
 - Nach einer Änderung kommt ein Push nur zu der Fahrt, die sich geändert hat. Ändert sich
   nur die Rückfahrtzeit, bleibt die Hinfahrt, wie sie ist.
-- **Spätestens zu Hause um** sucht die späteste Rückfahrt, mit der du bis dahin in Gelnhausen bist, auch wenn du dafür vor Vorlesungsende gehen musst (`zugbot anpassen --datum heute --heim 17:35`).
+- **Spätestens zu Hause um** sucht die späteste Rückfahrt, mit der du bis dahin da bist, auch wenn du dafür vor Vorlesungsende gehen musst (`zugbot anpassen --datum heute --heim 17:35`).
 - **Campus** überschreibt den Campus aus dem Raum.
 - An einem freien Tag braucht es Ankunft und Campus, dann plant der Bot trotzdem.
 - Geht für heute bis in 14 Tagen. Der Dienst übernimmt die Änderung innerhalb von Sekunden
@@ -137,9 +134,9 @@ Die Datei ist **privat**: Sie steht in `.gitignore` und landet nie auf GitHub.
 `config/stundenplan.beispiel.yaml` mit erfundenen Terminen; fehlt der echte Plan,
 nimmt der Bot das Beispiel. Neu anlegen: `cp config/stundenplan.beispiel.yaml config/stundenplan.yaml`.
 
-### Neuen Stundenplan aus TUCaN importieren
+### Neuen Stundenplan importieren
 
-1. In TUCaN: Stundenplan → Export → iCalendar (.ics) herunterladen.
+1. Stundenplan → Export → iCalendar (.ics) herunterladen.
 2. Anschauen, was erkannt wird (ändert nichts):
    ```bash
    .venv/bin/zugbot import-ics ~/Downloads/export.ics
@@ -171,13 +168,13 @@ zugbot plan --datum 2026-11-09 --tage 5            # auf dem Pi
 ## ntfy auf dem iPhone einrichten
 
 1. App „ntfy“ aus dem App Store installieren.
-2. Topic auf dem Pi nachsehen: `ssh bene635@tradingbot.tailed8a6b.ts.net grep NTFY_TOPIC zugbot/.env`
+2. Topic auf dem Pi nachsehen: 
 3. In der App: **+** → „Subscribe to topic“ → Topic-Namen (ohne `NTFY_TOPIC=`) eintragen,
    Server `ntfy.sh` lassen → Subscribe.
 4. Mitteilungen für ntfy in den iOS-Einstellungen erlauben. Damit dringende Meldungen
    (Verbindung klappt nicht mehr) auch im Fokus-Modus durchkommen: Einstellungen → Fokus →
    jeweiligen Fokus → Apps → ntfy hinzufügen.
-5. Test: `ssh bene635@tradingbot.tailed8a6b.ts.net zugbot test-push`
+5. Test:
 
 Der Topic-Name ist das einzige Geheimnis: Wer ihn kennt, kann mitlesen. Neu würfeln:
 neuen Wert in `~/zugbot/.env` eintragen, `sudo systemctl restart zugbot`, in der App neu abonnieren.
@@ -234,12 +231,11 @@ angekommen bist, danach die Rückfahrt). Die andere ist eine Zeile und lädt ers
 liest nur. Seite, Logo und Schrift bleiben im Browser zwischengespeichert (Seite 10 min,
 nach einem Deploy also spätestens dann aktuell).
 
-**Tram und Bus:** Unter jeder Verbindung über Darmstadt Hbf stehen die direkten Trams
+**Tram und Bus:** Unter jeder Verbindung stehen die direkten Trams
 und Busse zwischen Hbf und Campus, die noch passen (Hinweg: nach Zugankunft + 7 min und
 rechtzeitig am Campus; Rückweg: rechtzeitig für den Zug), mit Takt, z. B.
-„Tram 2 etwa alle 5–10 min“. Deine eigene Fahrt ist hervorgehoben. Die Box steht im Zeitstrahl am Umstieg in
-Darmstadt Hbf (Hinweg) bzw. am Campus-Halt (Rückweg). Fährt der Zug direkt
-zur Lichtwiese (RB 82), entfällt die Anzeige. Dafür fragt der Bot pro Planung 2–4 Mal mehr
+„Tram 2 etwa alle 5–10 min“. Deine eigene Fahrt ist hervorgehoben. Fährt der Zug direkt
+, entfällt die Anzeige. Dafür fragt der Bot pro Planung 2–4 Mal mehr
 bei Transitous an.
 
 **Schutz:** Die Seite liegt unter `/<DASHBOARD_SCHLUESSEL>/` (zufällig, aus der `.env`),
@@ -252,7 +248,7 @@ kommt man nur über Funnel hinein.
 ### Weckzeit: `/api/wecker`
 
 `https://tradingbot.tailed8a6b.ts.net/<schlüssel>/api/wecker` liefert die Weckzeit für
-**morgen**: Abfahrt in Gelnhausen minus `wecker.vorlauf_minuten` (Standard 40, in
+**morgen**: Abfahrt minus `wecker.vorlauf_minuten` (Standard 40, in
 `einstellungen.yaml`). Grundlage ist der gespeicherte Plan, der um 21:30 frisch berechnet
 wird; der Endpunkt selbst fragt keine Bahndaten ab. Ist die Abfahrt schon als verspätet
 bekannt, rechnet er mit der neuen Zeit.
