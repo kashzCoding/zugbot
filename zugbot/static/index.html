@@ -222,7 +222,15 @@
   .stadt b { color: var(--text); }
   .zeiten { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
   .zeiten span { background: var(--flaeche); color: var(--text); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
-  .zeiten span.deine { background: var(--akzent); color: #fff; }
+  .zeiten span.deine, .zeiten button.deine { background: var(--akzent); color: #fff; }
+  .zeiten button { border: 0; background: var(--flaeche); color: var(--text); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; line-height: inherit; }
+  .stadt .zeiten:has(button) { gap: 7px; }
+  .stadt .zeiten:has(button) > * { padding: 6px 10px; font-size: 13px; }
+  .zeiten button.zu-spaet { color: var(--grau); }
+  .zeiten button.knapp { color: var(--orange-text); }
+  .zeiten button.an { outline: 2px solid var(--akzent); }
+  .tram-wahl { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .stadt .link { padding: 6px 0 0; font-size: 13px; }
 
   /* Zeiten anpassen */
   details summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
@@ -388,7 +396,7 @@ function akzent(d) {
 /* ---------- Zeitstrahl ---------- */
 const farbe = a => a.steig ? "var(--orange)" : "var(--akzent)";
 
-function strahl(o) {
+function strahl(o, datum, richtung) {
   let html = "";
   o.halte.forEach((h, i) => {
     const vor = o.abschnitte[i - 1], nach = o.abschnitte[i];
@@ -400,7 +408,8 @@ function strahl(o) {
     const umstieg = h.umstieg ? `<span class="${h.umstieg_warn ? "warn" : ""}">${h.an && !h.ziel ?
       `an <span class="${h.an_spaet ? "warn" : ""}">${esc(h.an)}</span> · ` : ""}${esc(h.umstieg)}</span>` : "";
     const unter = [h.gleis ? `<span class="chip ${h.gleis_wechsel ? "warn" : ""}">${esc(h.gleis)}</span>` : "", umstieg].join("");
-    const st = o.stadt && o.stadt.halt === i && o.stadt.fahrten.length > 1 ? stadtBox(o.stadt) : "";
+    const st = o.stadt && o.stadt.halt === i &&
+      (o.stadt.fahrten.length > 1 || o.stadt.fahrten.some(f => f.waehlbar)) ? stadtBox(o.stadt, datum, richtung) : "";
     html += `<div class="zeit">${zeit}</div><div class="schiene ${h.ziel ? "ziel" : ""}" style="${stil}"><i></i></div>
       <div class="halt-text"><div class="ort">${esc(h.ort)}</div>${unter ? `<div class="unter">${unter}</div>` : ""}${st}</div>`;
     if (nach) html += `<div></div><div class="schiene" style="--farbe:${farbe(nach)}"></div>
@@ -410,10 +419,30 @@ function strahl(o) {
   return `<div class="strahl">${html}</div>`;
 }
 
-function stadtBox(st) {
-  return `<div class="stadt"><b>${esc(st.text)}</b>
-    <div class="zeiten" aria-label="passende Abfahrten">${st.fahrten.map(f =>
-      `<span class="${f.deine ? "deine" : ""}" title="${esc(f.linie)}, an ${esc(f.an)}">${esc(f.ab)} ${esc(f.linie)}</span>`).join("")}</div></div>`;
+let tramWahl = "";    // angetippte Tram: "datum:richtung:pt:linie"
+function stadtBox(st, datum, richtung) {
+  const key = f => `${datum}:${richtung}:${f.pt}:${f.linie}`;
+  const chip = f => {
+    const art = [f.deine ? "deine" : "", f.knapp ? "knapp" : "", f.zu_spaet ? "zu-spaet" : "",
+                 tramWahl === key(f) ? "an" : ""].join(" ").trim();
+    const titel = `${f.linie}, an ${f.an}${f.knapp ? ", knapp" : ""}${f.zu_spaet ? (richtung === "hin" ? ", zu spät" : ", Zug weg") : ""}`;
+    return f.waehlbar ? `<button type="button" class="${art}" data-tram="${esc(key(f))}" title="${esc(titel)}">${esc(f.ab)} ${esc(f.linie)}</button>`
+      : `<span class="${art}" title="${esc(titel)}">${esc(f.ab)} ${esc(f.linie)}</span>`;
+  };
+  const gewaehlt = st.fahrten.find(f => f.waehlbar && tramWahl === key(f));
+  const zusatz = f => [`an ${f.an}`, f.knapp ? "Umstieg knapp" : "",
+                       f.zu_spaet ? (richtung === "hin" ? "zu spät" : "Zug schon weg") : ""].filter(Boolean).join(" · ");
+  const wahl = gewaehlt ? `<div class="tram-wahl"><button type="button" class="knopf primaer klein" data-zug="${esc(gewaehlt.pt)}"
+      data-linie="${esc(gewaehlt.linie)}" data-datum="${esc(datum)}" data-richtung="${esc(richtung)}"
+      data-knopf="${esc(gewaehlt.linie)} ${esc(gewaehlt.ab)} nehme ich">${esc(gewaehlt.linie)} ${esc(gewaehlt.ab)} nehme ich</button>
+      <span class="klein">${esc(zusatz(gewaehlt))}</span></div>` : "";
+  const legende = [st.fahrten.some(f => f.knapp) ? "orange = Umstieg knapp" : "",
+                   st.fahrten.some(f => f.zu_spaet) ? (richtung === "hin" ? "grau = zu spät" : "grau = Zug schon weg") : ""].filter(Boolean);
+  const hinweis = st.fahrten.some(f => f.waehlbar) && !gewaehlt ?
+    `<div class="klein" style="margin-top:6px">Antippen, um eine andere zu nehmen${legende.length ? ` · ${legende.join(", ")}` : ""}</div>` : "";
+  const mehr = st.nachladbar && !st.live ? `<button type="button" class="link" data-trams="${esc(datum)}:${esc(richtung)}">Weitere Trams laden</button>` : "";
+  return `<div class="stadt"><b>${esc(st.live ? `${st.titel}: aktuell` : st.text)}</b>
+    <div class="zeiten" aria-label="passende Abfahrten">${st.fahrten.map(chip).join("")}</div>${wahl}${hinweis}${mehr}</div>`;
 }
 
 /* ---------- Fahrt mit Zeit-Chips ---------- */
@@ -518,7 +547,7 @@ function fahrtKarte(f, datum) {
       ${marken ? `<div class="marken">${marken}</div>` : ""}
       ${o.abschnitte.every(a => a.status_art === "plan") ? `<div class="klein">Zeiten laut Fahrplan, Echtzeit ab 90 min vor der Abfahrt</div>` : ""}
       <div class="mini-balken" aria-hidden="true">${mini}</div>
-      ${strahl(o)}
+      ${strahl(o, datum, f.richtung)}
       ${wahl}
     </div>${tafelHtml(f.tafel, datum, f.richtung) || (f.tafel_ladbar ?
       `<div class="tafel"><button type="button" class="link" data-tafel="${esc(key)}">Andere Züge anzeigen</button></div>` : "")}</section>`;
@@ -688,6 +717,19 @@ document.addEventListener("click", async ev => {
     if (tag && [...document.getElementById("a-tag").options].some(o => o.value === tag)) document.getElementById("a-tag").value = tag;
     felderFuellen();
     document.getElementById("anpassen").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+    return;
+  }
+  const tr = ev.target.closest("[data-tram]");
+  if (tr) {
+    tramWahl = tramWahl === tr.dataset.tram ? "" : tr.dataset.tram;
+    neuZeichnen();
+    return;
+  }
+  const tl = ev.target.closest("[data-trams]");
+  if (tl) {
+    const [datum, richtung] = tl.dataset.trams.split(":");
+    tl.disabled = true; tl.textContent = "Lade Trams …";
+    senden("api/trams", {datum, richtung}).then(laden).catch(e => { tl.disabled = false; tl.textContent = e.message; });
     return;
   }
   const tm = ev.target.closest("[data-tafelmehr]");

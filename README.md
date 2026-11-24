@@ -67,6 +67,7 @@ Abfahrt als pünktlich, vorher steht „Fahrplan“.
 | Eigene Zeiten geändert | Tag sofort neu planen; Push nur für heute oder wenn der Abendplan schon raus ist |
 | Andere Option gewählt | ab sofort diese überwachen (Morgen-Push, Meldungen, `/api/wecker`) |
 | „Nehme ich“ auf der Abfahrtstafel | Rest der Fahrt ab diesem Zug planen, ab dann überwachen, Push mit neuem Plan |
+| Tram/Bus angetippt, „nehme ich“ | genauso, ab dieser Tram/diesem Bus |
 | bei jeder Prüfung einer Fahrt | alle Optionen mit DB-Echtzeit auffrischen, Abfahrtstafel ab 90 min vorher |
 | alle 30 min | Selbsttest: DNS, Transitous, DB, ntfy erreichbar? Fehler stehen oben im Dashboard |
 
@@ -232,6 +233,14 @@ dieses Bahnhofs, nur Nahverkehr in deine Richtung, mit Echtzeit. Steigst du in e
 anderen Zug, tippe „Nehme ich“: Der Bot plant den Rest der Fahrt ab diesem Zug, überwacht
 ab dann ihn und schickt den neuen Plan per Push. An einem Umstiegsbahnhof zählt die Tafel
 erst ab deiner Ankunft dort.
+
+**Tram oder Bus selbst wählen:** Am Umstieg Darmstadt Hbf (hin) bzw. am Campus (zurück)
+stehen die passenden Trams und Busse. Die Abfahrtstafel kennt nur Züge, deshalb wählst
+du sie hier: Zeit antippen, dann „… nehme ich“. Der Bot plant ab dieser Tram weiter wie
+bei einem Zug. Hin stehen alle ab deiner echten Zugankunft da, auch wenn du damit zu
+spät kommst (grau); orange heißt: weniger Umstiegszeit als die 7 min der Regel.
+„Weitere Trams laden“ holt die aktuellen Abfahrten live (nur heute), z. B. bei großer
+Verspätung. Nur auf dem Standardweg über Darmstadt Hbf.
 
 **Schnell laden:** Ausführlich geladen wird nur die Hauptfahrt (Hinfahrt, bis du
 angekommen bist, danach die Rückfahrt). Die andere ist eine Zeile und lädt erst mit

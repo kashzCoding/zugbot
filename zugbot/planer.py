@@ -293,13 +293,20 @@ class Planer:
         else:
             start, ende = frueheste or min(zeiten) - timedelta(minutes=30), max(zeiten)
         fenster = int(min(3 * 3600, max(3600, (ende - start).total_seconds())))
+        fahrten = self.stadt_suche(richtung, campus, start, fenster)
+        return {"ab": frueheste.isoformat() if frueheste else None, "fahrten": fahrten}
+
+    def stadt_suche(self, richtung: str, campus: str, start: datetime, fenster: int,
+                    anzahl: int = 12) -> list[dict]:
+        """Direkte Trams/Busse Darmstadt Hbf <-> Campus ab start (auch fürs
+        Nachladen im Dashboard, "Weitere Trams")."""
         da = self.hid("darmstadt_hbf")
         c = self.e["campus"][campus]
         halte = [self.hid(k) for k in c.get("takt_halte", c["halte"])]
         gesehen, fahrten = set(), []
         for halt in halte:
             von, nach = (da, halt) if richtung == "hin" else (halt, da)
-            for t in self._suche(von, nach, abfahrt=start, anzahl=12,
+            for t in self._suche(von, nach, abfahrt=start, anzahl=anzahl,
                                  nur_modi=NAHVERKEHR_STADT, fenster_s=fenster):
                 f = [a for a in t.abschnitte if not a.fussweg]
                 # nur ohne Umstieg, direkt ab/an Hbf und Campus-Halt
@@ -311,9 +318,10 @@ class Planer:
                     continue
                 gesehen.add((a.linie, a.ab_plan))
                 fahrten.append({"ab": a.ab_plan.isoformat(), "an": a.an_plan.isoformat(), "linie": a.linie,
-                                "von": a.von.name, "nach": a.nach.name, "steig": a.gleis_ab})
+                                "von": a.von.name, "von_id": a.von.id, "nach": a.nach.name,
+                                "steig": a.gleis_ab})
         fahrten.sort(key=lambda x: x["ab"])
-        return {"ab": frueheste.isoformat() if frueheste else None, "fahrten": fahrten}
+        return fahrten
 
     # ------------------------------------------------------------ Bestimmter Zug
     def ab_zug(self, v: Verbindung, halt_id: str, linie: str, ab_plan: datetime,

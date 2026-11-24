@@ -20,6 +20,7 @@ from .bewertung import Regeln
 from .modell import Verbindung, _zeit
 
 ANZEIGEN_HOECHSTENS = 6
+LIVE_HOECHSTENS = 10    # nachgeladen ("Weitere Trams")
 
 
 def takt_text(abfahrten: list[datetime]) -> str:
@@ -49,19 +50,34 @@ def _linien(fahrten: list[dict]) -> str:
     return ", ".join(f"{art} {', '.join(nrn)}" for art, nrn in gruppen.items())
 
 
-def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]:
-    """Passende Trams/Busse für diese Verbindung, oder None (z. B. ohne Darmstadt Hbf)."""
-    if not stadt or not stadt.get("fahrten"):
+def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln,
+         live: Optional[list[dict]] = None) -> Optional[dict]:
+    """Passende Trams/Busse für diese Verbindung, oder None (z. B. ohne Darmstadt Hbf).
+
+    Jede Fahrt kommt mit "knapp" (weniger Umstiegszeit als die Regel) und
+    "zu_spaet" (hin: nach der Zielzeit am Campus, zurück: Zug schon weg), damit
+    du auch bei Verspätung eine Tram auswählen kannst. live = im Dashboard
+    nachgeladene Fahrten ("Weitere Trams"): dann alle davon, nicht nur die passenden.
+    """
+    quelle = live if live else (stadt or {}).get("fahrten")
+    if not quelle:
         return None
-    fahrten = [dict(f, ab_dt=_zeit(f["ab"]), an_dt=_zeit(f["an"])) for f in stadt["fahrten"]]
+    fahrten = [dict(f, ab_dt=_zeit(f["ab"]), an_dt=_zeit(f["an"])) for f in quelle]
     umstieg = timedelta(minutes=regeln.umstieg_darmstadt_min)
     if v.richtung == "hin":
         zug = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
                     and bewertung.ist_darmstadt_hbf(a.nach, regeln)), None)
         if zug is None:
             return None
-        frueh, spaet = zug.an + umstieg, v.ziel_zeit
-        passend = [f for f in fahrten if f["ab_dt"] >= frueh and (spaet is None or f["an_dt"] <= spaet)]
+        for f in fahrten:
+            f["knapp"] = f["ab_dt"] < zug.an + umstieg
+            f["zu_spaet"] = bool(v.ziel_zeit and f["an_dt"] > v.ziel_zeit)
+        passend = [f for f in fahrten if f["ab_dt"] >= zug.an]
+        if not live:
+            # Erst die, mit denen du rechtzeitig ankommst; bist du ohnehin zu
+            # spät, die nächsten danach (sonst stünde gar keine Tram da).
+            rechtzeitig = [f for f in passend if not f["zu_spaet"]]
+            passend = rechtzeitig or passend
         titel = "Ab Darmstadt Hbf zum Campus"
         halt = v.fahrten.index(zug) + 1      # Halt nach der Zugankunft
     else:
@@ -69,14 +85,19 @@ def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]
                     and bewertung.ist_darmstadt_hbf(a.von, regeln)), None)
         if zug is None:
             return None
-        frueh, spaet = _zeit(stadt.get("ab")), zug.ab - umstieg
-        passend = [f for f in fahrten if f["an_dt"] <= spaet and (frueh is None or f["ab_dt"] >= frueh)]
+        for f in fahrten:
+            f["knapp"] = f["an_dt"] > zug.ab - umstieg
+            f["zu_spaet"] = f["an_dt"] > zug.ab
+        frueh = _zeit((stadt or {}).get("ab"))
+        passend = fahrten if live else \
+            [f for f in fahrten if not f["zu_spaet"] and (frueh is None or f["ab_dt"] >= frueh)]
         titel = "Zum Darmstadt Hbf"
         halt = max(0, v.fahrten.index(zug) - 1)   # Abfahrtshalt der Tram/des Busses am Campus
     if not passend:
         return None
     eigene = {(a.linie, a.ab_plan) for a in v.fahrten if a.produkt in ("tram", "bus")}
-    passend = _auswahl(passend, eigene, v.richtung)
+    passend = sorted(passend, key=lambda f: f["ab_dt"])[:LIVE_HOECHSTENS] if live \
+        else _auswahl(passend, eigene, v.richtung)
     linien = _linien(passend)
     nur = {f["linie"] for f in passend}
     if len(nur) == 1:    # eine Linie: deren eigener Takt
@@ -92,10 +113,14 @@ def info(stadt: Optional[dict], v: Verbindung, regeln: Regeln) -> Optional[dict]
         "linien": linien,
         "takt": takt,
         "text": text,
+        "live": bool(live),
         "fahrten": [{
             "ab": f"{f['ab_dt']:%H:%M}", "an": f"{f['an_dt']:%H:%M}", "linie": f["linie"],
             "nach": f.get("nach", ""), "steig": f.get("steig") or "",
             "deine": (f["linie"], f["ab_dt"]) in eigene,
+            "knapp": f["knapp"], "zu_spaet": f["zu_spaet"],
+            "pt": f"{f['ab_dt']:%y%m%d%H%M}", "ab_dt": f["ab_dt"].isoformat(),
+            "halt_id": f.get("von_id") or "",
         } for f in passend],
     }
 

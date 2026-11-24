@@ -210,7 +210,9 @@ def optionen(p: Optional[dict], d, richtung: str, regeln: Regeln, jetzt: datetim
         if k != g_key and o.ab <= jetzt:
             continue
         daten = fahrt_daten(o, regeln, jetzt)
-        daten.update({"stadt": takt.info(stadt, o, regeln), "schluessel": k,
+        plan = k == g_key and not o.start and not o.ziel     # Tram wählen nur im Plan, auf dem Standardweg
+        info = takt.info(stadt, o, regeln, _stadt_live(d, richtung, jetzt) if plan else None)
+        daten.update({"stadt": _stadt_waehlbar(info, o, d, jetzt) if plan else info, "schluessel": k,
                       "gewaehlt": k == g_key and not offen, "wird_gewaehlt": k == offen,
                       "empfohlen": k == empfohlen, "fahrplan": k != g_key})
         ergebnis.append(daten)
@@ -259,6 +261,86 @@ def tafel_laden(daten: dict, jetzt: Optional[datetime] = None) -> dict:
     return {"ok": True, "text": ""}
 
 
+# ---------- Tram/Bus Darmstadt Hbf <-> Campus selbst wählen ----------
+_STADT_WUNSCH: dict[tuple, dict] = {}    # "Weitere Trams": (Datum, Richtung) -> {"stand", "fahrten"}
+STADT_LIVE_MIN = 20                      # so lange gilt eine nachgeladene Liste
+STADT_WAEHLBAR_MIN = 20                  # so lange nach der Abfahrt kannst du sie noch als "genommen" eintragen
+
+
+def _stadt_live(d, richtung: str, jetzt: datetime) -> Optional[list[dict]]:
+    t = _STADT_WUNSCH.get((d.isoformat(), richtung))
+    if t and jetzt - datetime.fromisoformat(t["stand"]) <= timedelta(minutes=STADT_LIVE_MIN):
+        return t["fahrten"]
+    return None
+
+
+def _hbf_id() -> str:
+    return config.einstellungen()["haltestellen"]["darmstadt_hbf"]["id"]
+
+
+def _stadt_waehlbar(info: Optional[dict], v: Verbindung, d, jetzt: datetime) -> Optional[dict]:
+    """Jede Tram bekommt "waehlbar" (Knopf "Nehme ich"). Ältere Pläne kennen
+    die Steig-ID nicht: hin geht dann Darmstadt Hbf, zurück nicht."""
+    if not info:
+        return info
+    for f in info["fahrten"]:
+        if not f["halt_id"] and v.richtung == "hin":
+            f["halt_id"] = _hbf_id()
+        f["waehlbar"] = bool(f["halt_id"]) and not f["deine"] and \
+            datetime.fromisoformat(f["ab_dt"]) >= jetzt - timedelta(minutes=STADT_WAEHLBAR_MIN)
+    info["nachladbar"] = d == jetzt.date() and v.an > jetzt
+    return info
+
+
+def _planer_holen():
+    global _planer
+    if _planer is None:
+        from .bahn import Bahn
+        from .planer import Planer
+        e = config.einstellungen()
+        _planer = Planer(Bahn(e), e)
+    return _planer
+
+
+def stadt_laden(daten: dict, jetzt: Optional[datetime] = None) -> dict:
+    """"Weitere Trams": aktuelle Trams/Busse zwischen Darmstadt Hbf und Campus,
+    hin ab deiner (echten) Zugankunft, zurück ab jetzt."""
+    jetzt = jetzt or datetime.now(config.zeitzone())
+    d = wuensche.datum_lesen(str(daten.get("datum", "")), jetzt.date())
+    richtung = daten.get("richtung")
+    if richtung not in ("hin", "rueck"):
+        raise ValueError("Richtung muss hin oder rueck sein.")
+    if d != jetzt.date():
+        raise ValueError("Weitere Trams gibt es nur für heute.")
+    v = zustand.verbindung(zustand.laden(), d, richtung)
+    if v is None or v.start or v.ziel:
+        raise ValueError("Trams kann ich nur auf dem Weg über Darmstadt Hbf laden.")
+    regeln = Regeln.aus_einstellungen(config.einstellungen())
+    start = jetzt - timedelta(minutes=2)
+    if richtung == "hin":
+        zug = next((a for a in v.fahrten if a.produkt not in ("tram", "bus")
+                    and bewertung.ist_darmstadt_hbf(a.nach, regeln)), None)
+        if zug:
+            start = max(start, zug.an)
+    fahrten = _planer_holen().stadt_suche(richtung, v.campus, start, 90 * 60, anzahl=10)
+    if not fahrten:
+        raise ValueError("Gerade finde ich keine Trams oder Busse.")
+    _STADT_WUNSCH[(d.isoformat(), richtung)] = {"stand": jetzt.isoformat(), "fahrten": fahrten}
+    return {"ok": True, "text": ""}
+
+
+def _stadt_fahrt(p: dict, d, richtung: str, pt: str, linie: str, jetzt: datetime) -> Optional[dict]:
+    """Tram/Bus aus der gespeicherten oder nachgeladenen Liste, mit Steig-ID."""
+    liste = ((p.get("stadt") or {}).get(richtung) or {}).get("fahrten") or []
+    liste = liste + (_stadt_live(d, richtung, jetzt) or [])
+    for f in liste:
+        if f["linie"] == linie and f"{datetime.fromisoformat(f['ab']):%y%m%d%H%M}" == pt:
+            halt_id = f.get("von_id") or (_hbf_id() if richtung == "hin" else "")
+            return {"linie": linie, "ist": f"{datetime.fromisoformat(f['ab']):%H:%M}",
+                    "ausfall": False, "halt_id": halt_id} if halt_id else None
+    return None
+
+
 # Ankunft am Ziel je Tafel-Zug ("mit diesem Zug wärst du um ... in Gelnhausen").
 # Jede Berechnung fragt Transitous, deshalb im Hintergrund und 20 min gemerkt.
 _ANKUNFT: dict[tuple, tuple[float, str]] = {}
@@ -269,13 +351,9 @@ _planer = None
 
 
 def _ankuenfte_rechnen(d, richtung: str, halt_id: str, offen: list[tuple]) -> None:
-    global _ankunft_laeuft, _planer
+    global _ankunft_laeuft
     try:
-        if _planer is None:
-            from .bahn import Bahn
-            from .planer import Planer
-            e = config.einstellungen()
-            _planer = Planer(Bahn(e), e)
+        _planer_holen()
         tz = config.zeitzone()
         for linie, pt in offen:
             text = ""
@@ -652,6 +730,11 @@ def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
                     if a["pt"] == pt and a["linie"] == daten.get("linie")), None)
         if alt:
             zug, halt_id = {"linie": alt["linie"], "ist": alt["ab"], "ausfall": False}, alt["halt_id"]
+    if zug is None and p and richtung in ("hin", "rueck"):
+        # Tram/Bus zwischen Darmstadt Hbf und Campus
+        zug = _stadt_fahrt(p, d, richtung, pt, str(daten.get("linie", "")), jetzt)
+        if zug:
+            halt_id = zug["halt_id"]
     if zug is None:
         raise ValueError("Diesen Zug kenne ich nicht (mehr), bitte neu laden.")
     if zug["ausfall"]:
@@ -663,7 +746,7 @@ def zug_nehmen(daten: dict, jetzt: Optional[datetime] = None) -> dict:
 
 
 POST_ROUTEN = {"/api/waehlen": waehlen, "/api/anpassen": anpassen, "/api/zug": zug_nehmen,
-               "/api/tafel": tafel_laden}
+               "/api/tafel": tafel_laden, "/api/trams": stadt_laden}
 
 
 class Handler(BaseHTTPRequestHandler):

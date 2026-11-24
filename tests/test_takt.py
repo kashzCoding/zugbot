@@ -40,9 +40,10 @@ def test_takt_text():
 def test_hinweg_nur_nach_umstieg_und_rechtzeitig():
     stadt = {"fahrten": fahrten("Tram 2", t(7, 20), 5, 6)}   # 7:20 ... 7:45, je 18 min
     i = takt.info(stadt, hinweg(zug_an=t(7, 22), tram_ab=t(7, 30)), REGELN)
-    # frühestens 7:22 + 7 min Umstieg, spätestens an 7:55 -> ab 7:30, 7:35
-    assert [f["ab"] for f in i["fahrten"]] == ["07:30", "07:35"]
-    assert i["fahrten"][0]["deine"] and not i["fahrten"][1]["deine"]
+    # ab Zugankunft 7:22, spätestens an 7:55; 7:25 ist knapp (unter 7 min Umstieg)
+    assert [f["ab"] for f in i["fahrten"]] == ["07:25", "07:30", "07:35"]
+    assert [f["knapp"] for f in i["fahrten"]] == [True, False, False]
+    assert i["fahrten"][1]["deine"] and not i["fahrten"][2]["deine"]
     assert i["halt"] == 1          # im Zeitstrahl am Darmstadt Hbf, nach der Zugankunft
     assert i["text"] == "Tram 2 etwa alle 5 min"
 
@@ -50,7 +51,8 @@ def test_hinweg_nur_nach_umstieg_und_rechtzeitig():
 def test_hinweg_verspaetung_zaehlt():
     stadt = {"fahrten": fahrten("Tram 2", t(7, 20), 5, 6)}
     i = takt.info(stadt, hinweg(zug_an=t(7, 22), an_ist=t(7, 27)), REGELN)
-    assert [f["ab"] for f in i["fahrten"]] == ["07:35"]
+    assert [f["ab"] for f in i["fahrten"]] == ["07:30", "07:35"]
+    assert i["fahrten"][0]["knapp"] and not i["fahrten"][1]["knapp"]
 
 
 def test_mehrere_linien_zusammen():
@@ -66,8 +68,9 @@ def test_rueckweg_bis_zugabfahrt_minus_umstieg():
     v = Verbindung([Teil([zug])], "rueck", "stadtmitte")
     stadt = {"ab": t(16, 10).isoformat(), "fahrten": fahrten("Bus H", t(16, 5), 5, 6, dauer=8)}
     i = takt.info(stadt, v, REGELN)
-    # ab frühestens 16:10, an spätestens 16:23 -> 16:10 (an 16:18), 16:15 (an 16:23)
-    assert [f["ab"] for f in i["fahrten"]] == ["16:10", "16:15"]
+    # ab frühestens 16:10, an spätestens 16:30 (Zug), ab 16:24 knapp -> 16:20 (an 16:28) knapp
+    assert [f["ab"] for f in i["fahrten"]] == ["16:10", "16:15", "16:20"]
+    assert [f["knapp"] for f in i["fahrten"]] == [False, False, True]
     assert i["titel"] == "Zum Darmstadt Hbf"
     assert i["halt"] == 0          # ohne Tram in der Verbindung: am ersten Halt
 
@@ -104,3 +107,22 @@ def test_anderer_erster_zug_dann_weiter_wie_geplant():
     erg = mit_anschluss([re_ok, re_zu_spaet, plan], plan, REGELN, jetzt)
     assert [v.schluessel() for v in erg] == ["RE 50@0620|RB 82@0726"]
     assert "weiter wie geplant" in erg[0].hinweis
+
+
+def test_hinweg_zu_spaet_zeigt_naechste():
+    """Heute früh: Zug kommt so spät, dass keine Tram mehr rechtzeitig ist."""
+    stadt = {"fahrten": [dict(f, von_id="tramsteig") for f in fahrten("Tram 2", t(7, 20), 5, 12)]}
+    i = takt.info(stadt, hinweg(zug_an=t(7, 22), an_ist=t(7, 45)), REGELN)
+    assert [f["ab"] for f in i["fahrten"]][:2] == ["07:45", "07:50"]
+    assert all(f["zu_spaet"] for f in i["fahrten"])
+    assert i["fahrten"][0]["halt_id"] == "tramsteig" and i["fahrten"][0]["pt"] == "2611050745"
+
+
+def test_nachgeladen_zeigt_alle_ab_ankunft():
+    live = fahrten("Tram 2", t(7, 20), 5, 20)
+    i = takt.info(None, hinweg(zug_an=t(7, 22)), REGELN, live=live)
+    assert i["live"] and len(i["fahrten"]) == takt.LIVE_HOECHSTENS and i["fahrten"][0]["ab"] == "07:25"
+    zug = Abschnitt(DA, FFM, t(16, 30), t(16, 47), linie="RB 68", produkt="regional")
+    v = Verbindung([Teil([zug])], "rueck", "stadtmitte")
+    i = takt.info(None, v, REGELN, live=fahrten("Bus H", t(16, 15), 5, 4, dauer=8))
+    assert [f["zu_spaet"] for f in i["fahrten"]] == [False, False, True, True]
