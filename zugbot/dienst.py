@@ -409,7 +409,7 @@ class Dienst:
             prio = "dringend" if dringend else ("niedrig" if haupt.art == "entwarnung" else "normal")
             ntfy.senden(titel, "\n".join(m.text for m in meldungen), prio)
 
-        z["gemeldet"][mkey] = ueberwachung.zustand_schluessel(v_neu, self.regeln, jetzt)
+        z["gemeldet"][mkey] = ueberwachung.zu_merken(v_neu, self.regeln, jetzt, zuletzt)
         p[richtung] = v_neu.als_dict()
         self._optionen_live(p, richtung, v_neu, jetzt)
         p["geprueft"][richtung] = jetzt.isoformat()

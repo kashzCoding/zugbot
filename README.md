@@ -63,6 +63,7 @@ Abfahrt als pünktlich, vorher steht „Fahrplan“.
 | Ausfall, Anschluss weg, Umstieg zu knapp | neu planen ab deinem Punkt der Reise, Push mit hoher Priorität |
 | Gleiswechsel, deutlich spätere Abfahrt | Push mit normaler Priorität |
 | kleine Verspätung ohne Folgen | nichts (steht nur im Dashboard) |
+| Ankunft nach Vorlesungsbeginn | einmal „Verspätete Ankunft“, danach erst wieder, wenn sich die Ankunft um 5 min oder mehr verschiebt |
 | Bahndaten 3x nicht erreichbar | **eine** Meldung, eine weitere, wenn es wieder geht |
 | Eigene Zeiten geändert | Tag sofort neu planen; Push nur für heute oder wenn der Abendplan schon raus ist |
 | Andere Option gewählt | ab sofort diese überwachen (Morgen-Push, Meldungen, `/api/wecker`) |

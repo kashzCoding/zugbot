@@ -97,6 +97,31 @@ def zustand_schluessel(v: Verbindung, regeln: Regeln, jetzt: datetime) -> dict[s
     return z
 
 
+# Schon als verspätet gemeldet: erst wieder melden, wenn sich die Ankunft um
+# so viel gegenüber der letzten Meldung verschiebt (sonst jede Minute ein Push).
+ZU_SPAET_SCHRITT_MIN = 5
+
+
+def _zu_spaet_neu(alt: Optional[str], neu: str) -> bool:
+    if alt is None:
+        return True
+    try:
+        a, n = (datetime.strptime(x, "%H:%M") for x in (alt, neu))
+    except ValueError:
+        return alt != neu
+    return abs((n - a).total_seconds()) >= ZU_SPAET_SCHRITT_MIN * 60
+
+
+def zu_merken(v: Verbindung, regeln: Regeln, jetzt: datetime, zuletzt: dict[str, str]) -> dict[str, str]:
+    """Zustand nach dieser Prüfung. Eine kleine Verschiebung der späten Ankunft
+    wurde nicht gemeldet: dann bleibt die zuletzt gemeldete Zeit stehen, damit
+    sich viele kleine Schritte (09:06, 09:07, 09:08 ...) doch einmal summieren."""
+    z = zustand_schluessel(v, regeln, jetzt)
+    if "zu_spaet" in z and "zu_spaet" in zuletzt and not _zu_spaet_neu(zuletzt["zu_spaet"], z["zu_spaet"]):
+        z["zu_spaet"] = zuletzt["zu_spaet"]
+    return z
+
+
 def lage(v: Verbindung, regeln: Regeln, jetzt: datetime, zuletzt: dict[str, str],
          abfahrt_schwelle: int) -> list[Meldung]:
     """Erzeugt Meldungen für alles, was sich seit 'zuletzt' relevant geändert hat."""
@@ -133,6 +158,8 @@ def lage(v: Verbindung, regeln: Regeln, jetzt: datetime, zuletzt: dict[str, str]
             meldungen.append(Meldung("umstieg", text, dringend=verpasst, neu_planen=verpasst,
                                      plan_b=not verpasst))
         elif art == "zu_spaet":
+            if not _zu_spaet_neu(zuletzt.get(key), wert):
+                continue
             meldungen.append(Meldung("zu_spaet", f"Ankunft jetzt {wert}, geplant war spätestens "
                                                  f"{v.ziel_zeit:%H:%M}.", dringend=True, neu_planen=True))
         elif art == "abfahrt" and int(wert) >= abfahrt_schwelle:
